@@ -27,21 +27,17 @@ class BTree(object):
 
         if i < len(node.keys) and key == node.keys[i]:
             found = []
+            if node.children and key == node.keys[0]:
+                found.extend(self.search(key, node.children[0]))
+
             while i < len(node.keys) and key == node.keys[i]:
                 found.append((node, i))
                 i += 1
 
-            if node.children:
-                if len(node.children) > 1 and key == node.keys[0] and key == node.keys[-1]:
-                    return self.search(key, node.children[0]) + found + self.search(key, node.children[-1])
-                elif key == node.keys[0]:
-                    return self.search(key, node.children[0]) + found
-                elif key == node.keys[-1]:
-                    return found + self.search(key, node.children[-1])
-                else:
-                    return found
-            else:
-                return found
+            if len(node.children) > 1 and key == node.keys[-1]:
+                found.extend(self.search(key, node.children[-1]))
+
+            return found
         elif node.leaf:
             return []
         else:
