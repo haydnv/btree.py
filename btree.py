@@ -1,3 +1,5 @@
+import bisect
+
 # based on https://gist.github.com/natekupp/1763661
 
 
@@ -17,13 +19,15 @@ class BTree(object):
         if node is None:
             node = self._root
 
-        #: TODO: replace with binary search
-        i = 0
-        while i < len(node.keys) and key > node.keys[i]:
-            i += 1
+        i = bisect.bisect_left(node.keys, key)
 
         if i < len(node.keys) and key == node.keys[i]:
-            return (node, i)
+            found = []
+            while i < len(node.keys) and key == node.keys[i]:
+                found.append((node, i))
+                i += 1
+            return found
+
         elif node.leaf:
             return None
         else:
@@ -49,21 +53,12 @@ class BTree(object):
     def _insert(self, node, key):
         i = len(node.keys) - 1
         if node.leaf:
-            # TODO: replace with list.insert
-            node.keys.append(0)
-            while i >= 0 and key < node.keys[i]:
-                node.keys[i + 1] = node.keys[i]
-            node.keys[i + 1] = key
+            bisect.insort(node.keys, key)
         else:
-            # TODO: replace with binary search
-            while i >= 0 and key < node.keys[i]:
-                i -= 1
-            i += 1
+            i = bisect.bisect(node.keys, key)
 
-            if len(node.children) > i and len(node.children[i].keys) == (2 * self._order) - 1:
+            if len(node.children[i].keys) >= (2 * self._order) - 1:
                 self._split_child(node, i)
-                if key > node.keys[i]:
-                    i += 1
 
             self._insert(node.children[i], key)
 
@@ -87,8 +82,14 @@ if __name__ == "__main__":
     tree = BTree(10)
     for i in range(1000):
         tree.insert(i)
+    tree.insert(502)
+    tree.insert(502)
+    tree.insert(502)
+    tree.insert(2000)
 
     print(tree.search(101))
     print(tree.search(-1))
     print(tree.search(1001))
+    print(list(tree.search(502)))
+    print(tree.search(2000))
 
