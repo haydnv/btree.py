@@ -26,7 +26,22 @@ class BTree(object):
         i = bisect.bisect_left(node.keys, key)
 
         if i < len(node.keys) and key == node.keys[i]:
-            return [(node, i)]
+            found = []
+            while i < len(node.keys) and key == node.keys[i]:
+                found.append((node, i))
+                i += 1
+
+            if node.children:
+                if len(node.children) > 1 and key == node.keys[0] and key == node.keys[-1]:
+                    return self.search(key, node.children[0]) + found + self.search(key, node.children[-1])
+                elif key == node.keys[0]:
+                    return self.search(key, node.children[0]) + found
+                elif key == node.keys[-1]:
+                    return found + self.search(key, node.children[-1])
+                else:
+                    return found
+            else:
+                return found
         elif node.leaf:
             return []
         else:
@@ -51,15 +66,15 @@ class BTree(object):
 
     def _insert(self, node, key):
         if node.leaf:
-            bisect.insort(node.keys, key)
-        else:
             i = bisect.bisect(node.keys, key)
-
-            if len(node.children) > i and len(node.children[i].keys) == (2 * self._order) - 1:
+            if len(node.children) > i and len(node.children[i].keys) >= (2 * self._order) - 1:
                 self._split_child(node, i)
                 if key > node.keys[i]:
                     i += 1
 
+            node.keys.insert(i, key)
+        else:
+            i = bisect.bisect(node.keys, key)
             self._insert(node.children[i], key)
 
     def _split_child(self, node, i):
@@ -101,10 +116,20 @@ if __name__ == "__main__":
             else:
                 assert key not in present
 
+    def test_duplicate_keys(tree):
+        key = 0
+        for num_keys in range(100):
+            for i in range(num_keys):
+                tree.insert(key)
+                keys = tree.search(key)
+                assert len(keys) == i + 1
+            key += 1
+
     def run_test(test, order):
         test(BTree(order))
-        print("pass: {}", order)
+        print("pass: {}".format(order))
 
-    for order in range(2, 100):
+    for order in range(2, 200):
         run_test(test_search, order)
+        run_test(test_duplicate_keys, order)
 
