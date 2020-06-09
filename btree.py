@@ -33,11 +33,27 @@ class _BTreeKey(object):
     def __le__(self, other):
         return self.value <= int(other)
 
+    def __str__(self):
+        return str(self.value)
+
 class _BTreeNode(object):
     def __init__(self, leaf = False):
         self.leaf = leaf
         self.keys = []
         self.children = []
+
+    def valid(self, order):
+        if len(self.children) <= (2 * order):
+            return False
+
+        if not self.leaf:
+            if len(self.children) != len(self.keys) + 1:
+                return False
+
+        if any(k.deleted for k in self.keys):
+            return False
+
+        return True
 
 class BTree(object):
     def __init__(self, order):
@@ -80,6 +96,32 @@ class BTree(object):
         else:
             yield from self._slice(node.children[i], start, end)
 
+    def size(self, node = None):
+        if node is None:
+            node = self._root
+
+        size = len(node.keys)
+        if node.children:
+            size += sum([self.size(c) for c in node.children])
+
+        return size
+
+    def select_all(self, node = None):
+        if node is None:
+            node = self._root
+
+        if node.leaf:
+            for k in node.keys:
+                if not k.deleted:
+                    yield int(k)
+        else:
+            for i in range(len(node.keys)):
+                yield from self.select_all(node.children[i])
+                if not node.keys[i].deleted:
+                    yield int(node.keys[i])
+
+            yield from self.select_all(node.children[-1])
+
     def select(self, start, end = None, node = None):
         if end is None:
             end = start
@@ -88,11 +130,26 @@ class BTree(object):
 
         for (node, i) in self._slice(self._root, start, end):
             if not node.keys[i].deleted:
-                yield node.keys[i]
+                yield int(node.keys[i])
 
     def delete(self, key):
         for (node, i) in self._slice(self._root, key, key):
             node.keys[i].deleted = True
+
+    def rebalance(self):
+        self._root = self._rebalance(self._root)
+
+    def _rebalance(self, node):
+        for i in range(len(node.children)):
+            node.children[i] = self._rebalance(node.children[i])
+
+        if node.valid(self._order):
+            return node
+        else:
+            new_node = BTree(self._order)
+            for key in self.select_all(node):
+                new_node.insert(key)
+            return new_node._root
 
     def insert(self, key):
         key = _BTreeKey(key)
@@ -167,8 +224,8 @@ class BTree(object):
         unvisited = deque(root.children)
         while unvisited:
             node = unvisited.popleft()
+            assert node.keys
             assert node.keys == sorted(node.keys)
-            assert len(node.keys) >= (2 * math.ceil(order / 2)) - 1
             assert len(node.children) <= (2 * self._order)
             if node.leaf:
                 assert not node.children
@@ -189,7 +246,7 @@ class BTree(object):
         while unvisited:
             (path, node) = unvisited.popleft()
 
-            leaf = "leaf" if node.leaf else "not leaf"
+            leaf = "leaf" if node.leaf else "internal"
             print("[{}]: {} keys, {} children ({}):".format(path, len(node.keys), len(node.children), leaf))
             print("\t{}".format(", ".join([str(k) for k in node.keys])))
             print()
@@ -259,6 +316,31 @@ if __name__ == "__main__":
             key = random.randint(-100, 100)
             tree.delete(key)
             assert len(list(tree.select(key))) == 0
+
+        contents = list(tree.select_all())
+        tree.rebalance()
+        if validate:
+            tree.validate()
+        assert contents == list(tree.select_all())
+
+        for key in tree.select_all():
+            tree.delete(key)
+        tree.insert(1)
+        tree.rebalance()
+        if validate:
+            tree.validate()
+
+        assert list(tree.select_all()) == [1]
+        assert tree.size() == 1
+
+        for i in range(1, 100):
+            tree.insert(i)
+        for i in range(25, 50):
+            tree.delete(i)
+            tree.rebalance()
+            if validate:
+                tree.validate()
+            assert len(list(tree.select(i))) == 0
 
     def run_test(test, order, validate = False):
         test(BTree(order), validate)
