@@ -68,25 +68,17 @@ class BTree(object):
         # TODO: implement
         raise NotImplementedError
 
-
-    def _insert(self, x, k):
-        i = len(x.keys) - 1
-        if x.leaf:
-            x.keys.append(0)
-            while i >= 0 and k < x.keys[i]:
-                x.keys[i+1] = x.keys[i]
-                i -= 1
-            x.keys[i+1] = k
+    def _insert(self, node, key):
+        i = bisect.bisect_left(node.keys, key)
+        if node.leaf:
+            node.keys.insert(i, key)
         else:
-            while i >= 0 and k < x.keys[i]:
-                i -= 1
-            i += 1
-            if len(x.children[i].keys) == (2*self._order) - 1:
-                self._split_child(x, i)
-                if k > x.keys[i]:
+            if len(node.children[i].keys) == (2 * self._order) - 1:
+                self._split_child(node, i)
+                if key > node.keys[i]:
                     i += 1
 
-            self._insert(x.children[i], k)
+            self._insert(node.children[i], key  )
 
     def _split_child(self, node, i):
         order = self._order
