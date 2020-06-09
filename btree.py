@@ -7,6 +7,32 @@ from collections import deque
 #   https://gist.github.com/natekupp/1763661 (assumes, but does not enforce, unique keys)
 #   https://en.wikipedia.org/wiki/B-tree
 
+class _BTreeKey(object):
+    def __init__(self, value):
+        self.value = value
+        self.deleted = False
+
+    def __eq__(self, other):
+        return self.value == other
+
+    def __int__(self):
+        return self.value
+
+    def __len__(self):
+        return len(self.value)
+
+    def __gt__(self, other):
+        return self.value > int(other)
+
+    def __ge__(self, other):
+        return self.value >= int(other)
+
+    def __lt__(self, other):
+        return self.value < int(other)
+
+    def __le__(self, other):
+        return self.value <= int(other)
+
 class _BTreeNode(object):
     def __init__(self, leaf = False):
         self.leaf = leaf
@@ -31,43 +57,45 @@ class BTree(object):
 
         return l
 
-    def search(self, key, node = None):
-        if key is None:
-            raise ValueError
-
-        if node is None:
-            node = self._root
-
+    def _slice(self, node, start, end):
         if not node.keys and not node.children:
-            return []
+            return
         elif not node.keys:
-            return self.search(key, node.children[0])
+            yield from self._slice(node.children[0], start, end)
 
-        i = bisect.bisect_left(node.keys, key)
+        i = bisect.bisect_left(node.keys, start)
 
-        if i < len(node.keys) and key == node.keys[i]:
-            found = []
-
-            while i < len(node.keys) and key == node.keys[i]:
-                found.append((node, i))
+        if i < len(node.keys) and node.keys[i] == start:
+            while i < len(node.keys) and node.keys[i] <= end:
+                yield (node, i)
                 if node.children:
-                    found.extend(self.search(key, node.children[i]))
+                    yield from self._slice(node.children[i], start, end)
                 i += 1
 
             if node.children and i == len(node.keys):
-                found.extend(self.search(key, node.children[i]))
+                yield from self._slice(node.children[i], start, end)
 
-            return found
         elif node.leaf:
-            return []
+            return
         else:
-            return self.search(key, node.children[i])
+            yield from self._slice(node.children[i], start, end)
 
-    def select(self, start, end):
-        # TODO: implement
-        raise NotImplementedError
+    def select(self, start, end = None, node = None):
+        if end is None:
+            end = start
+        if node is None:
+            node = self._root
+
+        for (node, i) in self._slice(self._root, start, end):
+            if not node.keys[i].deleted:
+                yield node.keys[i]
+
+    def delete(self, key):
+        for (node, i) in self._slice(self._root, key, key):
+            node.keys[i].deleted = True
 
     def insert(self, key):
+        key = _BTreeKey(key)
         node = self._root
         if len(node.keys) >= (2 * self._order) - 1:
             self._root = _BTreeNode()
@@ -109,12 +137,14 @@ class BTree(object):
 
         if node.leaf:
             for key in node.keys:
-                yield key
+                if not key.deleted:
+                    yield key
         else:
             for i in range(len(node.keys)):
                 for key in self.iter(node.children[i]):
                     yield key
-                yield node.keys[i]
+                if not node.keys[i].deleted:
+                    yield node.keys[i]
 
             for key in self.iter(node.children[-1]):
                 yield key
@@ -182,14 +212,14 @@ if __name__ == "__main__":
             if validate:
                 tree.validate()
 
-            assert len(tree.search(key)) == 1
+            assert len(list(tree.select(key))) == 1
 
         for key in present:
-            assert len(tree.search(key)) == 1
+            assert len(list(tree.select(key))) == 1
 
         for i in range(1000):
             key = random.randint(-i, i)
-            if tree.search(key):
+            if list(tree.select(key)):
                 assert key in present
             else:
                 assert key not in present
@@ -202,14 +232,14 @@ if __name__ == "__main__":
                 if validate:
                     tree.validate()
 
-                keys = tree.search(key)
+                keys = list(tree.select(key))
                 if len(keys) != i + 1:
                     print("{} x {}: {}".format(key, i + 1, len(keys)))
                     assert False
             key += 1
 
     def test_iteration(tree, validate):
-        present = list(range(500))
+        present = list(i for i in range(500))
         added = set()
         while added < set(present):
             key = random.choice(present)
@@ -221,6 +251,15 @@ if __name__ == "__main__":
         present = sorted(list(present))
         assert in_tree == present
 
+    def test_delete(tree, validate):
+        for i in range(-100, 100):
+            tree.insert(i)
+
+        for i in range(100):
+            key = random.randint(-100, 100)
+            tree.delete(key)
+            assert len(list(tree.select(key))) == 0
+
     def run_test(test, order, validate = False):
         test(BTree(order), validate)
 
@@ -228,5 +267,6 @@ if __name__ == "__main__":
         run_test(test_search, order)
         run_test(test_duplicate_keys, order)
         run_test(test_iteration, order)
+        run_test(test_delete, order)
         print("pass: {}".format(order))
 
