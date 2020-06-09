@@ -10,6 +10,14 @@ class _BTreeNode(object):
         self.keys = []
         self.children = []
 
+    def __str__(self):
+        if self.leaf:
+            return "Leaf BTreeNode with {0} keys\n\tK:{1}\n\tC:{2}\n".format(
+                len(self.keys), self.keys, self.children)
+        else:
+            return "Internal BTreeNode with {0} keys, {1} children\n\tK:{2}\n\n".format(
+                len(self.keys), len(self.children), self.keys, self.children)
+
 
 class BTree(object):
     def __init__(self, order):
@@ -27,15 +35,15 @@ class BTree(object):
 
         if i < len(node.keys) and key == node.keys[i]:
             found = []
-            if node.children and key == node.keys[0]:
-                found.extend(self.search(key, node.children[0]))
 
             while i < len(node.keys) and key == node.keys[i]:
                 found.append((node, i))
+                if node.children:
+                    found.extend(self.search(key, node.children[i]))
                 i += 1
 
-            if len(node.children) > 1 and key == node.keys[-1]:
-                found.extend(self.search(key, node.children[-1]))
+            if node.children and i == len(node.keys):
+                found.extend(self.search(key, node.children[i]))
 
             return found
         elif node.leaf:
@@ -60,18 +68,25 @@ class BTree(object):
         # TODO: implement
         raise NotImplementedError
 
-    def _insert(self, node, key):
-        if node.leaf:
-            i = bisect.bisect(node.keys, key)
-            if len(node.children) > i and len(node.children[i].keys) >= (2 * self._order) - 1:
-                self._split_child(node, i)
-                if key > node.keys[i]:
+
+    def _insert(self, x, k):
+        i = len(x.keys) - 1
+        if x.leaf:
+            x.keys.append(0)
+            while i >= 0 and k < x.keys[i]:
+                x.keys[i+1] = x.keys[i]
+                i -= 1
+            x.keys[i+1] = k
+        else:
+            while i >= 0 and k < x.keys[i]:
+                i -= 1
+            i += 1
+            if len(x.children[i].keys) == (2*self._order) - 1:
+                self._split_child(x, i)
+                if k > x.keys[i]:
                     i += 1
 
-            node.keys.insert(i, key)
-        else:
-            i = bisect.bisect(node.keys, key)
-            self._insert(node.children[i], key)
+            self._insert(x.children[i], k)
 
     def _split_child(self, node, i):
         order = self._order
@@ -81,12 +96,16 @@ class BTree(object):
         node.children.insert(i + 1, new_node)
         node.keys.insert(i, child.keys[order - 1])
 
-        new_node.keys = child.keys[order:((2 * order) - 1)]
+        new_node.keys = child.keys[order:]
         child.keys = child.keys[0:(order - 1)]
 
         if not child.leaf:
-            new_node.children = child.children[order:(2 * order)]
-            child.children = child.children[0:order]
+            new_node.children = child.children[order:]
+            child.children = child.children[:order]
+
+    def __str__(self):
+        r = self._root
+        return r.__str__() + '\n'.join([child.__str__() for child in r.children])
 
 
 if __name__ == "__main__":
@@ -118,14 +137,17 @@ if __name__ == "__main__":
             for i in range(num_keys):
                 tree.insert(key)
                 keys = tree.search(key)
-                assert len(keys) == i + 1
+                if len(keys) != i + 1:
+                    print("{} x {}: {}".format(key, i + 1, len(keys)))
+                    print(tree)
+                    exit()
             key += 1
 
     def run_test(test, order):
         test(BTree(order))
-        print("pass: {}".format(order))
 
-    for order in range(2, 200):
+    for order in range(2, 120):
         run_test(test_search, order)
         run_test(test_duplicate_keys, order)
+        print("pass: {}".format(order))
 
