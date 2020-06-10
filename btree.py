@@ -7,34 +7,58 @@ from collections import deque
 #   https://gist.github.com/natekupp/1763661 (assumes, but does not enforce, unique keys)
 #   https://en.wikipedia.org/wiki/B-tree
 
+
 class _BTreeKey(object):
     def __init__(self, value):
-        self.value = value
+        if value != list(value):
+            raise ValueError
+
+        self.value = list(value)
         self.deleted = False
 
     def __eq__(self, other):
-        return self.value == other
+        return list(self) == list(other)
 
-    def __int__(self):
+    def __getitem__(self, i):
+        return self.value[i]
+
+    def __list__(self):
         return self.value
 
     def __len__(self):
         return len(self.value)
 
     def __gt__(self, other):
-        return self.value > int(other)
+        for i in range(min(len(self), len(other))):
+            if self[i] > other[i]:
+                return True
+
+        return False
 
     def __ge__(self, other):
-        return self.value >= int(other)
+        for i in range(min(len(self), len(other))):
+            if self[i] >= other[i]:
+                return True
+
+        return False
 
     def __lt__(self, other):
-        return self.value < int(other)
+        for i in range(min(len(self), len(other))):
+            if self[i] < other[i]:
+                return True
+
+        return False
 
     def __le__(self, other):
-        return self.value <= int(other)
+        for i in range(min(len(self), len(other))):
+            if self[i] <= other[i]:
+                return True
+
+        return False
 
     def __str__(self):
         return str(self.value)
+
 
 class _BTreeNode(object):
     def __init__(self, leaf = False):
@@ -56,40 +80,37 @@ class _BTreeNode(object):
         return True
 
     def _slice(self, start, end):
-        if not self.keys and not self.children:
-            return
-        elif not self.keys:
+        if self.leaf:
+            l = bisect.bisect_left(self.keys, start)
+            r = bisect.bisect(self.keys, end)
+            yield from ((self, i) for i in range(l, r))
+        elif end < self.keys[0]:
             yield from self.children[0]._slice(start, end)
-
-        i = bisect.bisect_left(self.keys, start)
-
-        if i < len(self.keys) and self.keys[i] == start:
-            while i < len(self.keys) and self.keys[i] <= end:
-                yield (self, i)
-                if self.children:
-                    yield from self.children[i]._slice(start, end)
-                i += 1
-
-            if self.children and i == len(self.keys):
-                yield from self.children[i]._slice(start, end)
-
-        elif self.leaf:
-            return
+        elif start > self.keys[-1]:
+            yield from self.children[-1]._slice(start, end)
         else:
-            yield from self.children[i]._slice(start, end)
+            l = bisect.bisect_left(self.keys, start)
+            r = bisect.bisect(self.keys, end)
+
+            for i in range(l, r):
+                yield from self.children[i]._slice(start, end)
+                yield (self, i)
+
+            yield from self.children[r]._slice(start, end)
 
     def select_all(self):
         if self.leaf:
             for k in self.keys:
                 if not k.deleted:
-                    yield int(k)
+                    yield list(k)
         else:
             for i in range(len(self.keys)):
                 yield from self.children[i].select_all()
                 if not self.keys[i].deleted:
-                    yield int(self.keys[i])
+                    yield list(self.keys[i])
 
             yield from self.children[-1].select_all()
+
 
 class BTree(object):
     def __init__(self, order):
@@ -130,7 +151,7 @@ class BTree(object):
 
         for (node, i) in self._root._slice(start, end):
             if not node.keys[i].deleted:
-                yield int(node.keys[i])
+                yield list(node.keys[i])
 
     def delete(self, key):
         for (node, i) in self._root._slice(key, key):
@@ -153,8 +174,8 @@ class BTree(object):
 
     def insert(self, key):
         key = _BTreeKey(key)
-        node = self._root
-        if len(node.keys) >= (2 * self._order) - 1:
+        if len(self._root.keys) >= (2 * self._order) - 1:
+            node = self._root
             self._root = _BTreeNode()
             self._root.children.insert(0, node)
             self._split_child(self._root, 0)
@@ -171,7 +192,7 @@ class BTree(object):
                 if key > node.keys[i]:
                     i += 1
 
-            self._insert(node.children[i], key  )
+            self._insert(node.children[i], key)
 
     def _split_child(self, node, i):
         order = self._order
@@ -199,7 +220,7 @@ def assert_valid(tree):
     print("END TREE")
     print()
 
-    assert root.keys == sorted(root.keys)
+    assert root.keys == sorted(list(k) for k in root.keys)
     assert len(root.children) <= (2 * order)
     if not root.leaf:
         assert len(root.children) >= 2
@@ -207,8 +228,9 @@ def assert_valid(tree):
     unvisited = deque(root.children)
     while unvisited:
         node = unvisited.popleft()
+
         assert node.keys
-        assert node.keys == sorted(node.keys)
+        assert node.keys == sorted(list(k) for k in node.keys)
         assert len(node.children) <= (2 * order)
         if node.leaf:
             assert not node.children
@@ -248,18 +270,18 @@ if __name__ == "__main__":
             present.add(key)
 
         for key in present:
-            tree.insert(key)
+            tree.insert([key])
             if validate:
                 assert_valid(tree)
 
-            assert len(list(tree.select(key))) == 1
+            assert len(list(tree.select([key]))) == 1
 
         for key in present:
-            assert len(list(tree.select(key))) == 1
+            assert len(list(tree.select([key]))) == 1
 
         for i in range(1000):
             key = random.randint(-i, i)
-            if list(tree.select(key)):
+            if list(tree.select([key])):
                 assert key in present
             else:
                 assert key not in present
@@ -268,11 +290,11 @@ if __name__ == "__main__":
         key = 0
         for num_keys in range(100):
             for i in range(num_keys):
-                tree.insert(key)
+                tree.insert([key])
                 if validate:
                     assert_valid(tree)
 
-                keys = list(tree.select(key))
+                keys = list(tree.select([key]))
                 if len(keys) != i + 1:
                     print("{} x {}: {}".format(key, i + 1, len(keys)))
                     assert False
@@ -284,19 +306,19 @@ if __name__ == "__main__":
         while added < set(present):
             key = random.choice(present)
             if key not in added:
-                tree.insert(key)
+                tree.insert([key])
                 added.add(key)
 
         in_tree = sorted(list(tree.select_all()))
-        present = sorted(list(present))
+        present = sorted([i] for i in present)
         assert in_tree == present
 
     def test_delete(tree, validate):
         for i in range(-100, 100):
-            tree.insert(i)
+            tree.insert([i])
 
         for i in range(100):
-            key = random.randint(-100, 100)
+            key = [random.randint(-100, 100)]
             tree.delete(key)
             assert len(list(tree.select(key))) == 0
 
@@ -308,22 +330,42 @@ if __name__ == "__main__":
 
         for key in tree.select_all():
             tree.delete(key)
-        tree.insert(1)
+        tree.insert([1])
         tree.rebalance()
         if validate:
             assert_valid(tree)
 
-        assert list(tree.select_all()) == [1]
+        assert list(tree.select_all()) == [[1]]
         assert tree.size() == 1
 
         for i in range(1, 100):
-            tree.insert(i)
+            tree.insert([i])
         for i in range(25, 50):
-            tree.delete(i)
+            tree.delete([i])
             tree.rebalance()
             if validate:
                 assert_valid(tree)
-            assert len(list(tree.select(i))) == 0
+            assert len(list(tree.select([i]))) == 0
+
+    def test_compound_keys(tree, validate):
+        for i in range(10):
+            for j in range(10):
+                print("insert {}".format([i, j]))
+                tree.insert([i, j])
+                if validate:
+                    assert_valid(tree)
+
+        for i in range(10):
+            assert len(list(tree.select([i]))) == 10
+
+        num_keys = 100
+        for i in range(10):
+            tree.delete([i])
+            if validate:
+                assert_valid(tree)
+
+            num_keys -= 10
+            assert len(list(tree.select_all())) == num_keys
 
     def run_test(test, order, validate = False):
         test(BTree(order), validate)
@@ -333,5 +375,6 @@ if __name__ == "__main__":
         run_test(test_duplicate_keys, order)
         run_test(test_iteration, order)
         run_test(test_delete, order, True)
+        run_test(test_compound_keys, order, True)
         print("pass: {}".format(order))
 
