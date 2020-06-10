@@ -7,6 +7,8 @@ from collections import deque
 #   https://gist.github.com/natekupp/1763661 (assumes, but does not enforce, unique keys)
 #   https://en.wikipedia.org/wiki/B-tree
 
+# note that this is not strictly a B-tree because leaves can exist at different levels
+# due to the simpler (but less efficient) deletion algorithm
 
 class _BTreeKey(object):
     def __init__(self, value):
@@ -65,17 +67,20 @@ class _BTreeNode(object):
         self.leaf = leaf
         self.keys = []
         self.children = []
+        self.has_deleted_key = False
 
     def valid(self, order):
-        if len(self.children) <= (2 * order):
+        if self.has_deleted_key:
+            return False
+
+        if len(self.children) > order:
             return False
 
         if not self.leaf:
-            if len(self.children) != len(self.keys) + 1:
+            if len(self.children) <= math.ceil(order / 2):
                 return False
-
-        if any(k.deleted for k in self.keys):
-            return False
+            if len(self.keys) != len(self.children) - 1:
+                return False
 
         return True
 
@@ -156,6 +161,7 @@ class BTree(object):
     def delete(self, key):
         for (node, i) in self._root._slice(key, key):
             node.keys[i].deleted = True
+            node.has_deleted_key = True
 
     def rebalance(self):
         self._root = self._rebalance(self._root)
