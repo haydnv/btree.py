@@ -135,16 +135,6 @@ class BTree(object):
 
         return l
 
-    def size(self, node = None):
-        if node is None:
-            node = self._root
-
-        size = len(node.keys)
-        if node.children:
-            size += sum([self.size(c) for c in node.children])
-
-        return size
-
     def select_all(self):
         return self._root.select_all()
 
@@ -342,7 +332,7 @@ if __name__ == "__main__":
             assert_valid(tree)
 
         assert list(tree.select_all()) == [[1]]
-        assert tree.size() == 1
+        assert len(tree) == 1
 
         for i in range(1, 100):
             tree.insert([i])
@@ -356,7 +346,6 @@ if __name__ == "__main__":
     def test_compound_keys(tree, validate):
         for i in range(10):
             for j in range(10):
-                print("insert {}".format([i, j]))
                 tree.insert([i, j])
                 if validate:
                     assert_valid(tree)
@@ -380,7 +369,7 @@ if __name__ == "__main__":
         run_test(test_search, order)
         run_test(test_duplicate_keys, order)
         run_test(test_iteration, order)
-        run_test(test_delete, order, True)
-        run_test(test_compound_keys, order, True)
+        run_test(test_delete, order)
+        run_test(test_compound_keys, order)
         print("pass: {}".format(order))
 
