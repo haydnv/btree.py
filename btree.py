@@ -8,7 +8,7 @@ from collections import deque
 #   https://en.wikipedia.org/wiki/B-tree
 
 # note that this is not strictly a B-tree because leaves can exist at different levels
-# due to the simpler (but less efficient) deletion algorithm
+# due to the simpler (but less efficient) deletion/rebalancing algorithm
 
 class _BTreeKey(object):
     def __init__(self, value):
@@ -73,12 +73,15 @@ class _BTreeNode(object):
         if self.has_deleted_key:
             return False
 
-        if len(self.children) > order:
-            return False
-
-        if not self.leaf:
-            if len(self.children) <= math.ceil(order / 2):
+        if self.leaf:
+            if not self.keys:
                 return False
+        else:
+            if len(self.children) > order:
+                return False
+            elif len(self.children) <= math.ceil(order / 2):
+                return False
+
             if len(self.keys) != len(self.children) - 1:
                 return False
 
@@ -157,10 +160,13 @@ class BTree(object):
         self._root = self._rebalance(self._root)
 
     def _rebalance(self, node):
+        valid_children = True
         for i in range(len(node.children)):
             node.children[i] = self._rebalance(node.children[i])
+            if not node.children[i].valid(self._order):
+                valid_children = False
 
-        if node.valid(self._order):
+        if valid_children and node.valid(self._order):
             return node
         else:
             new_node = BTree(self._order)
@@ -181,7 +187,13 @@ class BTree(object):
     def _insert(self, node, key):
         i = bisect.bisect_left(node.keys, key)
         if node.leaf:
-            node.keys.insert(i, key)
+            if i < len(node.keys) and node.keys[i] == key:
+                if node.keys[i].deleted:
+                    node.keys[i].deleted = False
+                else:
+                    pass
+            else:
+                node.keys.insert(i, key)
         else:
             if len(node.children[i].keys) == (2 * self._order) - 1:
                 self._split_child(node, i)
@@ -290,10 +302,8 @@ if __name__ == "__main__":
                 if validate:
                     assert_valid(tree)
 
-                keys = list(tree.select([key]))
-                if len(keys) != i + 1:
-                    print("{} x {}: {}".format(key, i + 1, len(keys)))
-                    assert False
+                assert len(list(tree.select([key]))) == 1
+
             key += 1
 
     def test_iteration(tree, validate):
@@ -326,6 +336,9 @@ if __name__ == "__main__":
 
         for key in tree.select_all():
             tree.delete(key)
+            if validate:
+                assert_valid(tree)
+
         tree.insert([1])
         tree.rebalance()
         if validate:
