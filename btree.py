@@ -13,6 +13,7 @@ from collections import deque
 class _BTreeKey(object):
     def __init__(self, value):
         if value != list(value):
+            print("{} != {}".format(value, list(value)))
             raise ValueError
 
         self.value = list(value)
@@ -216,4 +217,20 @@ class BTree(object):
         if not child.leaf:
             new_node.children = child.children[order:]
             child.children = child.children[:order]
+
+    def __str__(tree):
+        unvisited = deque([("0", tree._root)])
+        as_str = ""
+        while unvisited:
+            (path, node) = unvisited.popleft()
+
+            leaf = "leaf" if node.leaf else "internal"
+            as_str += "[{}]: {} keys, {} children ({}):".format(
+                path, len(node.keys), len(node.children), leaf)
+            as_str += "\t{}\n".format(", ".join([str(k) for k in node.keys]))
+
+            for i in range(len(node.children)):
+                unvisited.append(("{}-{}".format(path, i), node.children[i]))
+
+        return as_str
 

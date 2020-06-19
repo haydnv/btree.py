@@ -1,6 +1,8 @@
+import math
 import random
 
 from btree import BTree
+from collections import deque
 
 
 def assert_valid(tree):
@@ -9,7 +11,7 @@ def assert_valid(tree):
 
     print()
     print("BEGIN TREE")
-    print_tree(tree)
+    print(tree)
     print("END TREE")
     print()
 
@@ -38,20 +40,6 @@ def assert_valid(tree):
                 assert node.children[i + 1].keys[0] >= node.keys[i]
 
         unvisited.extend(node.children)
-
-
-def print_tree(tree):
-    unvisited = deque([("0", tree._root)])
-    while unvisited:
-        (path, node) = unvisited.popleft()
-
-        leaf = "leaf" if node.leaf else "internal"
-        print("[{}]: {} keys, {} children ({}):".format(path, len(node.keys), len(node.children), leaf))
-        print("\t{}".format(", ".join([str(k) for k in node.keys])))
-        print()
-
-        for i in range(len(node.children)):
-            unvisited.append(("{}-{}".format(path, i), node.children[i]))
 
 
 def test_search(tree, validate):
