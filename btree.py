@@ -122,12 +122,15 @@ class _BTreeNode(object):
 
 
 class BTree(object):
-    def __init__(self, order):
+    def __init__(self, order, values=[]):
         if order < 2:
             raise ValueError
 
         self._order = order
         self._root = _BTreeNode(leaf = True)
+
+        for value in values:
+            self.insert(value)
 
     def __len__(self):
         l = 0
@@ -170,9 +173,7 @@ class BTree(object):
         if valid_children and node.valid(self._order):
             return node
         else:
-            new_node = BTree(self._order)
-            for key in node.select_all():
-                new_node.insert(key)
+            new_node = BTree(self._order, node.select_all())
             return new_node._root
 
     def insert(self, key):
