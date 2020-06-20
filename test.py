@@ -49,18 +49,18 @@ def test_search(tree, validate):
         present.add(key)
 
     for key in present:
-        tree.insert([key])
+        tree.insert([key], [key])
         if validate:
             assert_valid(tree)
 
-        assert len(list(tree.select([key]))) == 1
+        assert len(list(tree[[key]])) == 1
 
     for key in present:
-        assert len(list(tree.select([key]))) == 1
+        assert len(list(tree[[key]])) == 1
 
     for i in range(1000):
         key = random.randint(-i, i)
-        if list(tree.select([key])):
+        if list(tree[[key]]):
             assert key in present
         else:
             assert key not in present
@@ -70,11 +70,11 @@ def test_duplicate_keys(tree, validate):
     key = 0
     for num_keys in range(100):
         for i in range(num_keys):
-            tree.insert([key])
+            tree.insert([key], [key])
             if validate:
                 assert_valid(tree)
 
-            assert len(list(tree.select([key]))) == 1
+            assert len(list(tree[[key]])) == 1
 
         key += 1
 
@@ -85,82 +85,87 @@ def test_iteration(tree, validate):
     while added < set(present):
         key = random.choice(present)
         if key not in added:
-            tree.insert([key])
+            tree.insert([key], [key])
             added.add(key)
 
-    in_tree = sorted(list(tree.select_all()))
-    present = sorted([i] for i in present)
+    in_tree = sorted(list(tree[:]))
+    present = sorted(((i,), (i,)) for i in present)
     assert in_tree == present
 
 
 def test_delete(tree, validate):
     for i in range(-100, 100):
-        tree.insert([i])
+        tree.insert([i], [i])
 
     for i in range(100):
         key = [random.randint(-100, 100)]
-        tree.delete(key)
-        assert len(list(tree.select(key))) == 0
+        del tree[key]
+        assert len(list(tree[key])) == 0
 
-    contents = list(tree.select_all())
+    contents = list(tree[:])
     tree.rebalance()
     if validate:
         assert_valid(tree)
-    assert contents == list(tree.select_all())
+    assert contents == list(tree[:])
 
-    for key in tree.select_all():
-        tree.delete(key)
+    for (key, _val) in tree[:]:
+        del tree[key]
         if validate:
             assert_valid(tree)
 
-    tree.insert([1])
+    assert len(tree) == 0
+
+    tree.insert([1], [1])
+    assert len(tree) == 1
     tree.rebalance()
+    assert len(tree) == 1
     if validate:
         assert_valid(tree)
 
-    assert list(tree.select_all()) == [[1]]
+    assert list(tree[:]) == [((1,), (1,))]
+    print(len(tree))
     assert len(tree) == 1
 
     for i in range(1, 100):
-        tree.insert([i])
+        tree.insert([i], [i])
     for i in range(25, 50):
-        tree.delete([i])
+        del tree[[i]]
         tree.rebalance()
         if validate:
             assert_valid(tree)
-        assert len(list(tree.select([i]))) == 0
+        assert len(list(tree[[i]])) == 0
 
 
 def test_compound_keys(tree, validate):
     for i in range(10):
         for j in range(10):
-            tree.insert([i, j])
+            tree.insert([i, j], [])
             if validate:
                 assert_valid(tree)
 
     for i in range(10):
-        assert len(list(tree.select([i]))) == 10
+        assert len(list(tree[[i]])) == 10
 
     num_keys = 100
     for i in range(10):
-        tree.delete([i])
+        del tree[[i]]
         if validate:
             assert_valid(tree)
 
         num_keys -= 10
-        assert len(list(tree.select_all())) == num_keys
+        assert len(list(tree[:])) == num_keys
 
 
-def run_test(test, order, validate = False):
-    test(BTree(order), validate)
+def run_test(test, order, schema, validate = False):
+    test(BTree(order, schema), validate)
 
 
 if __name__ == "__main__":
     for order in range(2, 75):
-        run_test(test_search, order)
-        run_test(test_duplicate_keys, order)
-        run_test(test_iteration, order)
-        run_test(test_delete, order)
-        run_test(test_compound_keys, order)
+        run_test(test_search, order, ([int], [int]))
+        run_test(test_duplicate_keys, order, ([int], [int]))
+        run_test(test_iteration, order, ([int], [int]))
+        run_test(test_delete, order, ([int], [int]))
+        run_test(test_compound_keys, order, ([int, int], []))
         print("pass: {}".format(order))
 
