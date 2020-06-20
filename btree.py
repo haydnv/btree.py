@@ -35,6 +35,8 @@ class _BTreeKey(object):
         for i in range(min(len(self), len(other))):
             if self[i] > other[i]:
                 return True
+            elif self[i] < other[i]:
+                return False
 
         return False
 
@@ -52,6 +54,8 @@ class _BTreeKey(object):
         for i in range(min(len(self), len(other))):
             if self[i] < other[i]:
                 return True
+            elif self[i] > other[i]:
+                return False
 
         return False
 
@@ -91,6 +95,8 @@ class _BTreeNode(object):
         if isinstance(index, slice):
             l = bisect.bisect_left(self.keys, index.start) if index.start else 0
             r = bisect.bisect_right(self.keys, index.stop) if index.stop else len(self.keys)
+            if index.step and index.step != 1:
+                raise IndexError
         else:
             l = bisect.bisect_left(self.keys, index)
             r = bisect.bisect_right(self.keys, index)
@@ -123,8 +129,8 @@ class BTree(object):
             self.insert(key)
 
     def __getitem__(self, index):
-        if not isinstance(index, slice):
-            assert len(index)
+        if isinstance(index, tuple):
+            raise IndexError
 
         yield from self._root[index]
 

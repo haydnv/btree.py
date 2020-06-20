@@ -165,9 +165,8 @@ def test_slicing(tree, validate):
     assert len(list(tree[:])) == 100
     assert len(list(tree[[0]])) == 10
     assert len(list(tree[[1]:[8]])) == 80
-    print(list(tree[[1,1]]))
     assert len(list(tree[[1,1]])) == 1
-
+    assert len(list(tree[[1,1]:[2,2]])) == 12
 
 def run_test(test, order, schema, validate = False):
     test(BTree(order, schema), validate)
@@ -180,6 +179,6 @@ if __name__ == "__main__":
         run_test(test_iteration, order, (int,))
         run_test(test_delete, order, (int,))
         run_test(test_compound_keys, order, (int, int))
-#        run_test(test_slicing, order, (int, int))
+        run_test(test_slicing, order, (int, int))
         print("pass: {}".format(order))
 
