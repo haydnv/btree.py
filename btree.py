@@ -12,19 +12,17 @@ from collections import deque
 
 
 class _BTreeKey(object):
-    def __init__(self, key, value):
+    def __init__(self, key):
         self.key = tuple(key)
-        self.value = tuple(value)
         self.deleted = False
 
         assert key == self.key
-        assert value == self.value
 
     def __eq__(self, other):
         return tuple(self) == tuple(other)
 
     def __getitem__(self, index):
-        return (self.key + self.value)[index]
+        return self.key[index]
 
     def __ge__(self, other):
         for i in range(min(len(self), len(other))):
@@ -48,7 +46,7 @@ class _BTreeKey(object):
         return False
 
     def __len__(self):
-        return len(self.key) + len(self.value)
+        return len(self.key)
 
     def __lt__(self, other):
         for i in range(min(len(self), len(other))):
@@ -58,10 +56,10 @@ class _BTreeKey(object):
         return False
 
     def __str__(self):
-        return str(self.key + self.value)
+        return str(self.key)
 
     def __tuple__(self):
-        return self.key + self.value
+        return self.key
 
 
 class _BTreeNode(object):
@@ -108,11 +106,11 @@ class _BTreeNode(object):
 
     def __getitem__(self, index):
         rows = (node.keys[i] for (node, i) in self._slice(index) if not node.keys[i].deleted)
-        yield from ((row.key, row.value) for row in rows)
+        yield from (row.key for row in rows)
 
 
 class BTree(object):
-    def __init__(self, order, schema, values=[]):
+    def __init__(self, order, schema, keys=[]):
         assert order >= 2
         assert schema and schema == tuple(schema)
 
@@ -121,9 +119,8 @@ class BTree(object):
         self._schema = schema
         self._root = _BTreeNode(leaf = True)
 
-        for (key, value) in values:
-            self.insert(key, value)
-            self._len += 1
+        for key in keys:
+            self.insert(key)
 
     def __getitem__(self, index):
         if not isinstance(index, slice):
@@ -141,12 +138,6 @@ class BTree(object):
     def __len__(self):
         return self._len
 
-    def __setitem__(self, index, value):
-        assert len(value) == len(self._schema[1])
-        value = [self._schema[1][i](value[i]) for i in range(len(value))]
-        for (node, i) in self._root._slice(index):
-            node.keys[i] = value
-
     def __str__(tree):
         unvisited = deque([("0", tree._root)])
         as_str = ""
@@ -163,14 +154,12 @@ class BTree(object):
 
         return as_str
 
-    def insert(self, key, value):
-        assert len(key) == len(self._schema[0])
-        assert len(value) == len(self._schema[1])
+    def insert(self, key):
+        assert len(key) == len(self._schema)
 
-        key = tuple(self._schema[0][i](key[i]) for i in range(len(self._schema[0])))
-        value = tuple(self._schema[1][i](key[i]) for i in range(len(self._schema[1])))
+        key = tuple(self._schema[i](key[i]) for i in range(len(self._schema)))
 
-        key = _BTreeKey(key, value)
+        key = _BTreeKey(key)
         if len(self._root.keys) >= (2 * self._order) - 1:
             node = self._root
             self._root = _BTreeNode()

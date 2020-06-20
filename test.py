@@ -49,7 +49,7 @@ def test_search(tree, validate):
         present.add(key)
 
     for key in present:
-        tree.insert([key], [key])
+        tree.insert([key])
         if validate:
             assert_valid(tree)
 
@@ -70,7 +70,7 @@ def test_duplicate_keys(tree, validate):
     key = 0
     for num_keys in range(100):
         for i in range(num_keys):
-            tree.insert([key], [key])
+            tree.insert([key])
             if validate:
                 assert_valid(tree)
 
@@ -85,17 +85,17 @@ def test_iteration(tree, validate):
     while added < set(present):
         key = random.choice(present)
         if key not in added:
-            tree.insert([key], [key])
+            tree.insert([key])
             added.add(key)
 
     in_tree = sorted(list(tree[:]))
-    present = sorted(((i,), (i,)) for i in present)
+    present = sorted((i,) for i in present)
     assert in_tree == present
 
 
 def test_delete(tree, validate):
     for i in range(-100, 100):
-        tree.insert([i], [i])
+        tree.insert([i])
 
     for i in range(100):
         key = [random.randint(-100, 100)]
@@ -108,26 +108,25 @@ def test_delete(tree, validate):
         assert_valid(tree)
     assert contents == list(tree[:])
 
-    for (key, _val) in tree[:]:
+    for key in tree[:]:
         del tree[key]
         if validate:
             assert_valid(tree)
 
     assert len(tree) == 0
 
-    tree.insert([1], [1])
+    tree.insert([1])
     assert len(tree) == 1
     tree.rebalance()
     assert len(tree) == 1
     if validate:
         assert_valid(tree)
 
-    assert list(tree[:]) == [((1,), (1,))]
-    print(len(tree))
+    assert list(tree[:]) == [(1,)]
     assert len(tree) == 1
 
     for i in range(1, 100):
-        tree.insert([i], [i])
+        tree.insert([i])
     for i in range(25, 50):
         del tree[[i]]
         tree.rebalance()
@@ -139,7 +138,7 @@ def test_delete(tree, validate):
 def test_compound_keys(tree, validate):
     for i in range(10):
         for j in range(10):
-            tree.insert([i, j], [])
+            tree.insert([i, j])
             if validate:
                 assert_valid(tree)
 
@@ -156,16 +155,31 @@ def test_compound_keys(tree, validate):
         assert len(list(tree[:])) == num_keys
 
 
+def test_slicing(tree, validate):
+    for i in range(10):
+        for j in range(10):
+            for k in range(10):
+                tree.insert([i, j])
+
+    assert len(tree) == 100
+    assert len(list(tree[:])) == 100
+    assert len(list(tree[[0]])) == 10
+    assert len(list(tree[[1]:[8]])) == 80
+    print(list(tree[[1,1]]))
+    assert len(list(tree[[1,1]])) == 1
+
+
 def run_test(test, order, schema, validate = False):
     test(BTree(order, schema), validate)
 
 
 if __name__ == "__main__":
     for order in range(2, 75):
-        run_test(test_search, order, ([int], [int]))
-        run_test(test_duplicate_keys, order, ([int], [int]))
-        run_test(test_iteration, order, ([int], [int]))
-        run_test(test_delete, order, ([int], [int]))
-        run_test(test_compound_keys, order, ([int, int], []))
+        run_test(test_search, order, (int,))
+        run_test(test_duplicate_keys, order, (int,))
+        run_test(test_iteration, order, (int,))
+        run_test(test_delete, order, (int,))
+        run_test(test_compound_keys, order, (int, int))
+#        run_test(test_slicing, order, (int, int))
         print("pass: {}".format(order))
 
