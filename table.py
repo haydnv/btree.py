@@ -13,14 +13,40 @@ class Index(object):
     def insert(self, row):
         self._btree.insert(row)
 
+    def select(self, cond):
+        if not self.supports(cond):
+            raise IndexError
+
+        cond = list(cond.values())
+        if isinstance(cond[-1], slice):
+            start = []
+            stop = []
+            for v in cond[:-1]:
+                start.append(v)
+                stop.append(v)
+            if cond[-1].start:
+                start.append(cond[-1].start)
+            if cond[-1].stop:
+                stop.append(cond[-1].stop)
+
+            return self[slice(start, stop)]
+        else:
+            return self[cond]
+
     def supports(self, cond):
         if any(callable(v) for v in cond.values()):
             return False
 
-        columns = self.schema.keys()
-        requested = cond.keys()
-        return requested == columns[:len(requested)]
+        columns = list(self._schema.keys())
+        requested = list(cond.keys())
+        if requested != columns[:len(requested)]:
+            return False
 
+        for c in list(cond.values())[:-1]:
+            if isinstance(c, slice):
+                return False
+
+        return True
 
 class Selection(object):
     def __init__(self, rows, columns):
@@ -35,7 +61,7 @@ class Table(object):
     def __init__(self, key, value):
         self._key = key
         self._value = value
-        self._primary = Index(OrderedDict(key + value))
+        self._primary = Index(OrderedDict(tuple(key) + tuple(value)))
 
     def insert(self, row):
         assert len(row) == len(self._key) + len(self._value)
@@ -48,7 +74,11 @@ class Table(object):
         if cond is None:
             return Selection(self._primary[:], cols)
 
+        if self._primary.supports(cond):
+            return Selection(self._primary.select(cond), cols)
+
         raise IndexError
+
 
 def test_select_all():
     pk = (("one", str), ("two", int))
@@ -71,6 +101,24 @@ def test_select_all():
     }]
 
 
+def test_pk_range():
+    pk = (("one", int), ("two", int))
+    t = Table(pk, [])
+    t.insert([1, 1])
+    t.insert([1, 2])
+    t.insert([2, 2])
+
+    actual = list(t.select(cond={"one": 2, "two": 2}))
+    assert actual == [{"one": 2, "two": 2}]
+
+    actual = list(t.select(cond={"one": slice(1, 2)}))
+    assert actual == [{"one": 1, "two": 1}, {"one": 1, "two": 2}]
+
+    actual = list(t.select(cond={"one": 1, "two": slice(1, 2)}))
+    assert actual == [{"one": 1, "two": 1}]
+
+
 if __name__ == "__main__":
     test_select_all()
+    test_pk_range()
 
