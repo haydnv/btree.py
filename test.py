@@ -164,9 +164,9 @@ def test_slicing(tree, validate):
     assert len(tree) == 100
     assert len(list(tree[:])) == 100
     assert len(list(tree[[0]])) == 10
-    assert len(list(tree[[1]:[8]])) == 80
+    assert len(list(tree[[1]:[8]])) == 70
     assert len(list(tree[[1,1]])) == 1
-    assert len(list(tree[[1,1]:[2,2]])) == 12
+    assert len(list(tree[[1,1]:[2,2]])) == 11
 
 def run_test(test, order, schema, validate = False):
     test(BTree(order, schema), validate)

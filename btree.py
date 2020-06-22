@@ -94,7 +94,8 @@ class _BTreeNode(object):
     def _slice(self, index):
         if isinstance(index, slice):
             l = bisect.bisect_left(self.keys, index.start) if index.start else 0
-            r = bisect.bisect_right(self.keys, index.stop) if index.stop else len(self.keys)
+            r = bisect.bisect_left(self.keys, index.stop) if index.stop else len(self.keys)
+            print([str(k) for k in self.keys], index, l, r)
             if index.step and index.step != 1:
                 raise IndexError
         else:
