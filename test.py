@@ -89,7 +89,7 @@ def test_iteration(tree, validate):
             tree.insert([key])
             added.add(key)
 
-    in_tree = sorted(list(tree[:]))
+    in_tree = sorted(list(tree))
     present = sorted((i,) for i in present)
     assert in_tree == present
 

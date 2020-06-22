@@ -73,6 +73,12 @@ class _BTreeNode(object):
         self.children = []
         self.has_deleted_key = False
 
+    def __iter__(self):
+        yield from self.select(slice(None))
+
+    def __getitem__(self, index):
+        yield from self.select(index)
+
     def valid(self, order):
         if self.has_deleted_key:
             return False
@@ -124,9 +130,6 @@ class _BTreeNode(object):
 
                 yield from self.children[r]._slice(bounds, reverse)
 
-    def __getitem__(self, index):
-        return self.select(index)
-
 
 class BTree(object):
     def __init__(self, order, schema, keys=[]):
@@ -153,6 +156,9 @@ class BTree(object):
                 node.keys[i].deleted = True
                 node.has_deleted_key = True
                 self._len -= 1
+
+    def __iter__(self):
+        yield from self._root
 
     def __len__(self):
         return self._len
