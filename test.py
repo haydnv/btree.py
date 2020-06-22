@@ -1,3 +1,4 @@
+import itertools
 import math
 import random
 
@@ -168,6 +169,21 @@ def test_slicing(tree, validate):
     assert len(list(tree[[1,1]])) == 1
     assert len(list(tree[[1,1]:[2,2]])) == 11
 
+def test_reverse_ordering(tree, validate):
+    present = []
+    for key in itertools.product(*[range(1, 10) for _ in range(3)]):
+        tree.insert(key)
+        present.append(key)
+
+    assert list(tree.select(slice(None), reverse=True)) == list(reversed(present))
+
+    expected = list(reversed(list(itertools.product(*[[1], range(1, 10), range(1, 10)]))))
+    assert list(tree.select(slice([1], [2]), reverse=True)) == expected
+    del tree[[2]]
+    assert list(tree.select(slice([2], [3]), reverse=True)) == []
+    assert list(tree.select(slice([1], [2]), reverse=True)) == expected
+
+
 def run_test(test, order, schema, validate = False):
     test(BTree(order, schema), validate)
 
@@ -180,5 +196,6 @@ if __name__ == "__main__":
         run_test(test_delete, order, (int,))
         run_test(test_compound_keys, order, (int, int))
         run_test(test_slicing, order, (int, int))
+        run_test(test_reverse_ordering, order, (int, int, int))
         print("pass: {}".format(order))
 

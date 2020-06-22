@@ -91,28 +91,41 @@ class _BTreeNode(object):
 
         return True
 
-    def _slice(self, index):
-        if isinstance(index, slice):
-            l = bisect.bisect_left(self.keys, index.start) if index.start else 0
-            r = bisect.bisect_left(self.keys, index.stop) if index.stop else len(self.keys)
-            if index.step and index.step != 1:
+    def select(self, bounds, reverse=False):
+        rows = (
+            node.keys[i] for (node, i) in self._slice(bounds, reverse)
+            if not node.keys[i].deleted)
+        yield from (row.key for row in rows)
+
+    def _slice(self, bounds, reverse):
+        if isinstance(bounds, slice):
+            l = bisect.bisect_left(self.keys, bounds.start) if bounds.start else 0
+            r = bisect.bisect_left(self.keys, bounds.stop) if bounds.stop else len(self.keys)
+            if bounds.step and bounds.step != 1:
                 raise IndexError
         else:
-            l = bisect.bisect_left(self.keys, index)
-            r = bisect.bisect_right(self.keys, index)
+            l = bisect.bisect_left(self.keys, bounds)
+            r = bisect.bisect_right(self.keys, bounds)
 
         if self.leaf:
-            yield from ((self, i) for i in range(l, r))
+            r = reversed(range(l, r)) if reverse else range(l, r)
+            yield from ((self, i) for i in r)
         else:
-            for i in range(l, r):
-                yield from self.children[i]._slice(index)
-                yield (self, i)
+            if reverse:
+                yield from self.children[r]._slice(bounds, reverse)
 
-            yield from self.children[r]._slice(index)
+                for i in reversed(range(l, r)):
+                    yield (self, i)
+                    yield from self.children[i]._slice(bounds, True)
+            else:
+                for i in range(l, r):
+                    yield from self.children[i]._slice(bounds, False)
+                    yield (self, i)
+
+                yield from self.children[r]._slice(bounds, reverse)
 
     def __getitem__(self, index):
-        rows = (node.keys[i] for (node, i) in self._slice(index) if not node.keys[i].deleted)
-        yield from (row.key for row in rows)
+        return self.select(index)
 
 
 class BTree(object):
@@ -135,7 +148,7 @@ class BTree(object):
         yield from self._root[index]
 
     def __delitem__(self, index):
-        for (node, i) in self._root._slice(index):
+        for (node, i) in self._root._slice(index, False):
             if not node.keys[i].deleted:
                 node.keys[i].deleted = True
                 node.has_deleted_key = True
@@ -173,6 +186,12 @@ class BTree(object):
             self._split_child(self._root, 0)
 
         self._insert(self._root, key)
+
+    def select(self, bounds, reverse=False):
+        if bounds.step:
+            raise IndexError
+
+        return self._root.select(bounds, reverse)
 
     def rebalance(self):
         self._root = self._rebalance(self._root)
