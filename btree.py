@@ -130,7 +130,7 @@ class BTree(object):
 
     def __getitem__(self, index):
         if isinstance(index, tuple):
-            raise IndexError
+            raise IndexError(index)
 
         yield from self._root[index]
 

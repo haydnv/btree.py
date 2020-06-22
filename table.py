@@ -73,11 +73,11 @@ class Table(object):
         self._primary.insert(row)
 
     def select(self, columns=None, cond=None):
+        source_columns = list(self._primary._schema.keys())
         if columns is None:
             columns = list(self._primary._schema.keys())
 
         if cond is None:
-            source_columns = list(self._primary._schema.keys())
             return Selection(self._primary[:], source_columns, columns)
 
         if self._primary.supports(cond):
@@ -85,7 +85,21 @@ class Table(object):
             rows = self._primary.select(cond)
             return Selection(rows, source_columns, columns)
 
-        raise IndexError
+        return Selection(self._index_and_select(cond), source_columns, columns)
+
+    def _index_and_select(self, cond):
+        table_schema = dict(tuple(self._key) + tuple(self._value))
+        index_key = tuple((k, table_schema[k]) for k in cond.keys())
+        index_schema = OrderedDict(index_key + self._key)
+        index = Index(index_schema)
+        for row in self.select(list(index_schema.keys())):
+            row = tuple(row[k] for k in index_schema.keys())
+            index.insert(row)
+
+        index_columns = list(index_schema.keys())
+        pk_columns = list(k[0] for k in self._key)
+        for row_key in Selection(index.select(cond), index_columns, pk_columns):
+            yield next(self._primary[list(row_key[k] for k in pk_columns)])
 
 
 def test_select_all():
@@ -135,8 +149,21 @@ def test_column_filter():
     assert actual == [{"three": "value"}]
 
 
+def test_select_without_index():
+    pk = (("one", int),)
+    cols = (("two", int), ("three", int))
+    t = Table(pk, cols)
+    t.insert((1, 1, 1))
+    t.insert((2, 1, 2))
+    t.insert((3, 3, 3))
+
+    actual = list(t.select(columns=["one"], cond={"two": 1}))
+    assert actual == [{"one": 1}, {"one": 2}]
+
+
 if __name__ == "__main__":
     test_select_all()
     test_pk_range()
     test_column_filter()
+    test_select_without_index()
 
