@@ -48,13 +48,18 @@ class Index(object):
 
         return True
 
+
 class Selection(object):
-    def __init__(self, rows, columns):
+    def __init__(self, rows, source_columns, dest_columns):
         self._rows = rows
-        self._columns = columns
+        self._source_columns = source_columns
+        self._columns = dest_columns
 
     def __iter__(self):
-        yield from (dict(zip(self._columns, row)) for row in self._rows)
+        for row in self._rows:
+            assert len(row) == len(self._source_columns)
+            row = dict(zip(self._source_columns, row))
+            yield {k: v for k, v in row.items() if k in self._columns}
 
 
 class Table(object):
@@ -67,15 +72,18 @@ class Table(object):
         assert len(row) == len(self._key) + len(self._value)
         self._primary.insert(row)
 
-    def select(self, cols=None, cond=None):
-        if cols is None:
-            cols = self._primary._schema.keys()
+    def select(self, columns=None, cond=None):
+        if columns is None:
+            columns = list(self._primary._schema.keys())
 
         if cond is None:
-            return Selection(self._primary[:], cols)
+            source_columns = list(self._primary._schema.keys())
+            return Selection(self._primary[:], source_columns, columns)
 
         if self._primary.supports(cond):
-            return Selection(self._primary.select(cond), cols)
+            source_columns = list(self._primary._schema.keys())
+            rows = self._primary.select(cond)
+            return Selection(rows, source_columns, columns)
 
         raise IndexError
 
@@ -118,7 +126,17 @@ def test_pk_range():
     assert actual == [{"one": 1, "two": 1}]
 
 
+def test_column_filter():
+    pk = (("one", str), ("two", int))
+    t = Table(pk, (("three", str),))
+    t.insert(("test", 2, "value"))
+
+    actual = list(t.select(["three"], {"one": "test"}))
+    assert actual == [{"three": "value"}]
+
+
 if __name__ == "__main__":
     test_select_all()
     test_pk_range()
+    test_column_filter()
 
