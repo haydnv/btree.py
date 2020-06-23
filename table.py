@@ -2,168 +2,243 @@ from btree import BTree
 from collections import OrderedDict
 
 
-class Index(object):
-    def __init__(self, schema):
-        self._schema = schema
-        self._btree = BTree(10, tuple(schema.values()))
+class Column(object):
+    def __init__(self, name, constructor):
+        self.name = name
+        self.ctr = constructor
 
-    def __getitem__(self, selector):
-        return self._btree[selector]
+
+class Schema(object):
+    def __init__(self, key, value):
+        self.key = tuple(Column(*c) for c in key)
+        self.value = tuple(Column(*c) for c in value)
+
+    def __len__(self):
+        return len(self.key) + len(self.value)
+
+    def columns(self):
+        return self.key + self.value
+
+    def column_names(self):
+        return list(c.name for c in self.columns())
+
+    def key_names(self):
+        return list(c.name for c in self._key)
+
+
+class Selection(object):
+    def __init__(self, source):
+        self._source = source
+
+    def __iter__(self):
+        yield from (row for row in self._source)
+
+    def filter(self, bool_filter):
+        return FilterSelection(self, bool_filter)
+
+    def limit(self, limit):
+        return LimitedSelection(self, limit)
+
+    def schema(self):
+        if isinstance(self._source, Selection):
+            return self._source.schema()
+        else:
+            raise NotImplementedError
+
+    def select(self, columns):
+        return ColumnSelection(self, columns)
+
+    def slice(self, bounds):
+        return SliceSelection(self, bounds)
+
+    def supports(self, bounds):
+        if isinstance(self._source, Selection):
+            return self._source.supports(bounds)
+        else:
+            return False
+
+    def order_by(self, columns, reverse=False):
+        raise NotImplementedError
+
+
+class ColumnSelection(Selection):
+    def __init__(self, source, columns):
+        super().__init__(source)
+        self._columns = columns
+
+    def __iter__(self):
+        columns = self.schema().column_names()
+        columns = tuple(i for i in range(len(columns)) if columns[i] in self._columns)
+        for row in self._source:
+            yield tuple(row[i] for i in columns)
+
+
+class FilterSelection(Selection):
+    def __init__(self, source, bool_filter):
+        self._source = source
+        self._filter = bool_filter
+
+    def __iter__(self):
+        for row in self._source:
+            if self._filter(dict(zip(self.schema().column_names(), row))):
+                yield row
+
+
+class LimitedSelection(object):
+    def __init__(self, source, limit):
+        self._source = source
+        self._limit = limit
+
+    def __iter__(self):
+        i = 0
+        for row in self._source:
+            yield row
+
+            i += 1
+            if i == self._limit:
+                break
+
+
+class SliceSelection(Selection):
+    def __init__(self, source, bounds):
+        super().__init__(source)
+        self._bounds = bounds
+
+    def __iter__(self):
+        yield from self._source.slice(self._bounds)
+
+
+class Index(Selection):
+    def __init__(self, schema, keys=[]):
+        self._schema = schema
+        super().__init__(BTree(10, tuple(c.ctr for c in schema.columns()), keys))
+
+    def __getitem__(self, bounds):
+        yield from self._source[bounds]
 
     def insert(self, row):
-        self._btree.insert(row)
+        self._source.insert(row)
 
-    def select(self, cond):
-        if not self.supports(cond):
-            raise IndexError
+    def schema(self):
+        return self._schema
 
-        cond = list(cond.values())
-        if isinstance(cond[-1], slice):
+    def slice(self, bounds):
+        if not self.supports(bounds):
+            raise NotImplementedError
+
+        bounds = list(bounds.values())
+        if isinstance(bounds[-1], slice):
             start = []
             stop = []
-            for v in cond[:-1]:
+            for v in bounds[:-1]:
                 start.append(v)
                 stop.append(v)
-            if cond[-1].start:
-                start.append(cond[-1].start)
-            if cond[-1].stop:
-                stop.append(cond[-1].stop)
+            if bounds[-1].start:
+                start.append(bounds[-1].start)
+            if bounds[-1].stop:
+                stop.append(bounds[-1].stop)
 
             return self[slice(start, stop)]
         else:
-            return self[cond]
+            return self[bounds]
 
-    def supports(self, cond):
-        if any(callable(v) for v in cond.values()):
+    def supports(self, bounds):
+        if any(callable(v) for v in bounds.values()):
             return False
 
-        columns = list(self._schema.keys())
-        requested = list(cond.keys())
+        columns = self.schema().column_names()
+        requested = list(bounds.keys())
         if requested != columns[:len(requested)]:
             return False
 
-        for c in list(cond.values())[:-1]:
+        for c in list(bounds.values())[:-1]:
             if isinstance(c, slice):
                 return False
 
         return True
 
 
-class Selection(object):
-    def __init__(self, rows, source_columns, dest_columns):
-        self._rows = rows
-        self._source_columns = source_columns
-        self._columns = dest_columns
+class Table(Selection):
+    def __init__(self, index):
+        super().__init__(index)
 
-    def __iter__(self):
-        for row in self._rows:
-            assert len(row) == len(self._source_columns)
-            row = dict(zip(self._source_columns, row))
-            yield {k: v for k, v in row.items() if k in self._columns}
-
-
-class Table(object):
-    def __init__(self, key, value):
-        self._key = key
-        self._value = value
-        self._primary = Index(OrderedDict(tuple(key) + tuple(value)))
+    def __getitem__(self, bounds):
+        yield from self._source[bounds]
 
     def insert(self, row):
-        assert len(row) == len(self._key) + len(self._value)
-        self._primary.insert(row)
+        assert len(row) == len(self.schema())
+        self._source.insert(row)
 
-    def select(self, columns=None, cond=None):
-        source_columns = list(self._primary._schema.keys())
-        if columns is None:
-            columns = list(self._primary._schema.keys())
+    def slice(self, bounds):
+        if self._source.supports(bounds):
+            return SliceSelection(self._source, bounds) 
 
-        if cond is None:
-            return Selection(self._primary[:], source_columns, columns)
-
-        if self._primary.supports(cond):
-            source_columns = list(self._primary._schema.keys())
-            rows = self._primary.select(cond)
-            return Selection(rows, source_columns, columns)
-
-        return Selection(self._index_and_select(cond), source_columns, columns)
-
-    def _index_and_select(self, cond):
-        table_schema = dict(tuple(self._key) + tuple(self._value))
-        index_key = tuple((k, table_schema[k]) for k in cond.keys())
-        index_schema = OrderedDict(index_key + self._key)
-        index = Index(index_schema)
-        for row in self.select(list(index_schema.keys())):
-            row = tuple(row[k] for k in index_schema.keys())
-            index.insert(row)
-
-        index_columns = list(index_schema.keys())
-        pk_columns = list(k[0] for k in self._key)
-        for row_key in Selection(index.select(cond), index_columns, pk_columns):
-            yield next(self._primary[list(row_key[k] for k in pk_columns)])
+        raise IndexError
 
 
 def test_select_all():
     pk = (("one", str), ("two", int))
     cols = (("three", float), ("four", complex))
-    t = Table(pk, cols)
+    t = Table(Index(Schema(pk, cols)))
     row1 = ("test", 1, 2., 3+1j)
     row2 = ("test2", 4, 5., 6-1j)
     t.insert(row1)
     t.insert(row2)
-    assert list(t.select()) == [{
-        "one": "test",
-        "two": 1,
-        "three": 2.,
-        "four": 3+1j,
-    }, {
-        "one": "test2",
-        "two": 4,
-        "three": 5.,
-        "four": 6-1j,
-    }]
+    assert list(t) == [row1, row2]
 
 
 def test_pk_range():
     pk = (("one", int), ("two", int))
-    t = Table(pk, [])
+    t = Table(Index(Schema(pk, [])))
     t.insert([1, 1])
     t.insert([1, 2])
     t.insert([2, 2])
 
-    actual = list(t.select(cond={"one": 2, "two": 2}))
-    assert actual == [{"one": 2, "two": 2}]
+    actual = list(t.slice({"one": 1, "two": 2}))
+    assert actual == [(1, 2)]
 
-    actual = list(t.select(cond={"one": slice(1, 2)}))
-    assert actual == [{"one": 1, "two": 1}, {"one": 1, "two": 2}]
+    actual = list(t.slice({"one": slice(1, 2)}))
+    assert actual == [(1, 1), (1, 2)]
 
-    actual = list(t.select(cond={"one": 1, "two": slice(1, 2)}))
-    assert actual == [{"one": 1, "two": 1}]
+    actual = list(t.slice({"one": 1, "two": slice(1, 3)}))
+    assert actual == [(1, 1), (1, 2)]
 
 
-def test_column_filter():
+def test_select_column():
     pk = (("one", str), ("two", int))
-    t = Table(pk, (("three", str),))
+    t = Table(Index(Schema(pk, (("three", str),))))
     t.insert(("test", 2, "value"))
 
-    actual = list(t.select(["three"], {"one": "test"}))
-    assert actual == [{"three": "value"}]
+    actual = list(t.slice({"one": "test"}).select(["three"]))
+    assert actual == [("value",)]
 
 
-def test_select_without_index():
-    pk = (("one", int),)
-    cols = (("two", int), ("three", int))
-    t = Table(pk, cols)
-    t.insert((1, 1, 1))
-    t.insert((2, 1, 2))
-    t.insert((3, 3, 3))
+def test_limit():
+    pk = (("key", int),)
+    t = Table(Index(Schema(pk, tuple())))
+    for i in range(50):
+        t.insert((i,))
 
-    actual = list(t.select(columns=["one"], cond={"two": 1}))
-    assert actual == [{"one": 1}, {"one": 2}]
+    actual = list(t.slice({"key": slice(10, 20)}).limit(5))
+    assert actual == [(10,), (11,), (12,), (13,), (14,)]
+
+
+def test_filter():
+    pk = (("key", str),)
+    cols = (("value", int),)
+    t = Table(Index(Schema(pk, cols)))
+    t.insert(("one", 1))
+    t.insert(("two", 2))
+    t.insert(("three", 3))
+
+    actual = list(t.filter(lambda r: r["key"] == "two"))
+    assert actual == [("two", 2)]
 
 
 if __name__ == "__main__":
     test_select_all()
     test_pk_range()
-    test_column_filter()
-    test_select_without_index()
+    test_select_column()
+    test_limit()
+    test_filter()
 
