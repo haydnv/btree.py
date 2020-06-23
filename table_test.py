@@ -68,6 +68,20 @@ def test_add_index():
     assert actual == [("One", 2, "Three"), ("Four", 5, "Six")]
 
 
+def test_ordering():
+    pk = (("one", int), ("two", int))
+    t = new_table(pk, [])
+    for i in range(10):
+        for j in range(10):
+            t.insert((i, j))
+
+    actual = list(t
+        .slice({"one": 1, "two": slice(5)})
+        .limit(3)
+        .order_by(["two", "one"], reverse=True))
+    assert actual == [(1, 2), (1, 1), (1, 0)]
+
+
 def test_chaining():
     pk = (("one", str), ("two", int))
     cols = (("three", int),)
@@ -79,11 +93,15 @@ def test_chaining():
 
     actual = list(t
         .filter(lambda row: row["three"] > 3)
+        .slice({"three": slice(2, 9)})
+        .limit(1)
+        .index()
         .slice({"one": "Four"})
         .limit(2)
         .select(["one"])
     )
     assert actual == [("Four",)]
+
 
 if __name__ == "__main__":
     test_select_all()
@@ -91,6 +109,7 @@ if __name__ == "__main__":
     test_limit()
     test_filter()
     test_add_index()
+    test_ordering()
     test_chaining()
     print("PASS")
 

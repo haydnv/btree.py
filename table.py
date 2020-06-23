@@ -42,6 +42,13 @@ class Selection(object):
     def filter(self, bool_filter):
         return FilterSelection(self, bool_filter)
 
+    def index(self, new_key=None):
+        if new_key is None:
+            return Index(self.schema(), self)
+
+        new_key = [c for c in self.schema().columns() if c.name in new_key]
+        return Index(self.schema(), self)
+
     def limit(self, limit):
         return LimitSelection(self, limit)
 
@@ -67,7 +74,10 @@ class Selection(object):
             return False
 
     def order_by(self, columns, reverse=False):
-        raise NotImplementedError
+        if set(columns) > set(self.schema().column_names()):
+            raise ValueError
+
+        return OrderedSelection(self, columns, reverse)
 
 
 class ColumnSelection(Selection):
@@ -137,6 +147,28 @@ class MergeSelection(Selection):
         raise IndexError
 
 
+class OrderedSelection(Selection):
+    def __init__(self, source, columns, reverse):
+        index = source.index(columns)
+        super().__init__(index)
+        self._reverse = reverse
+
+    def __iter__(self):
+        if self._reverse:
+            yield from self._source.reversed(slice(None))
+        else:
+            yield from self._source
+
+
+class SchemaSelection(Selection):
+    def __init__(self, schema, source):
+        super().__init__(source)
+        self._schema = schema
+
+    def schema(self):
+        return self._schema
+
+
 class SliceSelection(Selection):
     def __init__(self, source, bounds):
         super().__init__(source)
@@ -163,7 +195,7 @@ class Index(Selection):
     def schema(self):
         return self._schema
 
-    def slice(self, bounds):
+    def slice(self, bounds, reverse=False):
         if not self.supports(bounds):
             raise NotImplementedError
 
@@ -179,9 +211,9 @@ class Index(Selection):
             if bounds[-1].stop:
                 stop.append(bounds[-1].stop)
 
-            return self[slice(start, stop)]
+            return SchemaSelection(self._schema, self[slice(start, stop)])
         else:
-            return self[bounds]
+            return SchemaSelection(self._schema, self[bounds])
 
     def supports(self, bounds):
         if any(callable(v) for v in bounds.values()):
@@ -197,6 +229,9 @@ class Index(Selection):
                 return False
 
         return True
+
+    def reversed(self, bounds):
+        yield from self._source.select(bounds, True)
 
 
 class Table(Selection):
