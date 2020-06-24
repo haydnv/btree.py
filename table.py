@@ -94,7 +94,7 @@ class ColumnSelection(Selection):
             raise IndexError
 
         key = {key_names[i]: key[i] for i in range(len(key))}
-        key = tuple(key.get(c, slice(None)) for c in self._source.schema().key_names())
+        key = tuple(key.get(c, slice(None)) for c in self._source.schema().column_names())
 
         columns = self._column_indices()
         for row in self._source[key]:
@@ -158,8 +158,7 @@ class MergeSelection(Selection):
     def __getitem__(self, key):
         right = self._right.select(self.schema().key_names())
         for k in right[key]:
-            if k == key:
-                yield from self._source[key]
+            yield from self._source[key]
 
     def __iter__(self):
         key_names = self.schema().key_names()
