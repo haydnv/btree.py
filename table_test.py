@@ -57,6 +57,21 @@ def test_filter():
     assert actual == [(2,)]
 
 
+def test_column_select():
+    pk = (("one", int),)
+    values = (("two", int), ("three", int))
+    t = new_table(pk, values)
+
+    for i in range(2):
+        t.insert((i, i * 10, i * 100))
+
+    actual = list(t
+        .select(["one", "two", "three"])
+        .select(["two", "one", "three"])
+        .select(["one", "two"]))[-1]
+    assert actual == (1, 10)
+
+
 def test_add_index():
     pk = (("one", str),)
     cols = (("two", int), ("three", str))
@@ -86,14 +101,16 @@ def test_ordering():
 
 def test_slice_multiple_keys():
     pk = (("a", int), ("b", int))
-    t = new_table(pk, [])
+    values = (("c", int),)
+    t = new_table(pk, values)
     t.add_index("i2", ["b"])
+    t.add_index("i3", ["c"])
 
-    for key in itertools.product(*[range(5) for _ in range(2)]):
-        t.insert(key)
+    for i, j in itertools.product(*[range(5) for _ in range(2)]):
+        t.insert((i, j, i + j))
 
-    actual = list(t.slice({"a": slice(0, 2), "b": 1}))
-    assert actual == [(0, 1), (1, 1)]
+    actual = list(t.slice({"a": slice(2), "b": 1, "c": slice(1, None)}))
+    assert actual == [(0, 1, 1), (1, 1, 2)]
 
 
 def test_chaining():
@@ -122,6 +139,7 @@ if __name__ == "__main__":
     test_pk_range()
     test_limit()
     test_filter()
+    test_column_select()
     test_add_index()
     test_ordering()
     test_slice_multiple_keys()

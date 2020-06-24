@@ -37,7 +37,7 @@ class Selection(object):
         self._source = source
 
     def __iter__(self):
-        yield from (row for row in self._source)
+        yield from self._source
 
     def filter(self, bool_filter):
         return FilterSelection(self, bool_filter)
@@ -75,7 +75,7 @@ class Selection(object):
 
     def order_by(self, columns, reverse=False):
         if set(columns) > set(self.schema().column_names()):
-            raise ValueError
+            raise IndexError
 
         return OrderedSelection(self, columns, reverse)
 
@@ -83,12 +83,19 @@ class Selection(object):
 class ColumnSelection(Selection):
     def __init__(self, source, columns):
         if set(columns) > set(source.schema().column_names()):
-            raise ValueError
+            raise IndexError
 
         super().__init__(source)
         self._columns = columns
 
     def __getitem__(self, key):
+        key_names = self.schema().key_names()
+        if len(key) > len(key_names):
+            raise IndexError
+
+        key = {key_names[i]: key[i] for i in range(len(key))}
+        key = tuple(key.get(c, slice(None)) for c in self._source.schema().key_names())
+
         columns = self._column_indices()
         for row in self._source[key]:
             yield tuple(row[i] for i in columns)
@@ -99,10 +106,8 @@ class ColumnSelection(Selection):
             yield tuple(row[i] for i in columns)
 
     def schema(self):
-        source_schema = self._source.schema()
-        key = [c for c in source_schema.key if c.name in self._columns]
-        value = [c for c in source_schema.value if c.name in self._columns and c not in key]
-        return Schema(key, value)
+        source_columns = {c.name: c for c in self._source.schema().columns()}
+        return Schema([source_columns[c] for c in self._columns], [])
 
     def _column_indices(self):
         columns = self._source.schema().column_names()
@@ -151,9 +156,10 @@ class MergeSelection(Selection):
         self._right = right
 
     def __getitem__(self, key):
-        key_names = self.schema().key_names()
-        for key in self._right.select(key_names)[key]:
-            yield from self._source[key]
+        right = self._right.select(self.schema().key_names())
+        for k in right[key]:
+            if k == key:
+                yield from self._source[key]
 
     def __iter__(self):
         key_names = self.schema().key_names()
@@ -211,7 +217,7 @@ class SliceSelection(Selection):
                         return False
                     if bound.stop and bound.stop <= val:
                         return False
-                elif self._bounds[col] < val or self._bounds[col] >= val:
+                elif self._bounds[col] < val or self._bounds[col] > val:
                     return False
 
         return True
@@ -321,11 +327,14 @@ class Table(Selection):
         if set(bounds.keys()) > set(columns):
             raise IndexError
 
-        if self._source.supports(bounds):
-            return SliceSelection(self._source, bounds)
+        bounds = [(c, bounds[c]) for c in columns if c in bounds]
+        while bounds[-1][1] == slice(None):
+            bounds = bounds[:-1]
+
+        if self._source.supports(dict(bounds)):
+            return SliceSelection(self._source, dict(bounds))
 
         selection = self._source
-        bounds = [(c, bounds[c]) for c in columns if c in bounds]
         key_columns = self.schema().key_names()
         while bounds:
             supported = False
