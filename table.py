@@ -1,5 +1,5 @@
 from btree import BTree
-from collections import OrderedDict
+from collections import deque, OrderedDict
 
 
 class Column(object):
@@ -82,21 +82,32 @@ class Selection(object):
 
 class ColumnSelection(Selection):
     def __init__(self, source, columns):
+        if set(columns) > set(source.schema().column_names()):
+            raise ValueError
+
         super().__init__(source)
         self._columns = columns
 
+    def __getitem__(self, key):
+        columns = self._column_indices()
+        for row in self._source[key]:
+            yield tuple(row[i] for i in columns)
+
     def __iter__(self):
-        columns = self._source.schema().column_names()
-        columns = dict(zip(columns, range(len(columns))))
-        columns = tuple(columns[c] for c in self._columns)
+        columns = self._column_indices()
         for row in self._source:
             yield tuple(row[i] for i in columns)
 
     def schema(self):
         source_schema = self._source.schema()
         key = [c for c in source_schema.key if c.name in self._columns]
-        value = [c for c in source_schema.value if c.name in self._columns]
+        value = [c for c in source_schema.value if c.name in self._columns and c not in key]
         return Schema(key, value)
+
+    def _column_indices(self):
+        columns = self._source.schema().column_names()
+        columns = dict(zip(columns, range(len(columns))))
+        return tuple(columns[c] for c in self._columns)
 
 
 class FilterSelection(Selection):
@@ -139,12 +150,15 @@ class MergeSelection(Selection):
         super().__init__(left)
         self._right = right
 
-    def __iter__(self):
-        for key in self._right.select(self.schema().key_names()):
+    def __getitem__(self, key):
+        key_names = self.schema().key_names()
+        for key in self._right.select(key_names)[key]:
             yield from self._source[key]
 
-    def slice(self, bounds):
-        raise IndexError
+    def __iter__(self):
+        key_names = self.schema().key_names()
+        for key in self._right.select(key_names):
+            yield from self._source[key]
 
 
 class OrderedSelection(Selection):
@@ -174,8 +188,36 @@ class SliceSelection(Selection):
         super().__init__(source)
         self._bounds = bounds
 
+    def __getitem__(self, key):
+        if self.contains(key):
+            return self._source[key]
+        else:
+            return []
+
     def __iter__(self):
         yield from self._source.slice(self._bounds)
+
+    def contains(self, key):
+        columns = self.schema().column_names()
+        if len(key) > len(columns):
+            raise IndexError
+
+        key = OrderedDict([(columns[i], key[i]) for i in range(len(key))])
+        for col, val in key.items():
+            if col in self._bounds:
+                bound = self._bounds[col]
+                if isinstance(bound, slice):
+                    if bound.start and bound.start > val:
+                        return False
+                    if bound.stop and bound.stop <= val:
+                        return False
+                elif self._bounds[col] < val or self._bounds[col] >= val:
+                    return False
+
+        return True
+
+    def supports(self, bounds):
+        return self._source.supports(bounds)
 
 
 class Index(Selection):
@@ -188,6 +230,9 @@ class Index(Selection):
             bounds = list(bounds)
 
         yield from self._source[bounds]
+
+    def contains(self, key):
+        return self._source.contains(list(key))
 
     def insert(self, row):
         self._source.insert(row)
@@ -216,6 +261,9 @@ class Index(Selection):
             return SchemaSelection(self._schema, self[bounds])
 
     def supports(self, bounds):
+        if set(bounds.keys()) > set(self.schema().column_names()):
+            return False
+
         if any(callable(v) for v in bounds.values()):
             raise IndexError
 
@@ -257,17 +305,56 @@ class Table(Selection):
 
     def insert(self, row):
         assert len(row) == len(self.schema())
+        if self._source.contains(row[:len(self.schema().key)]):
+            raise ValueError
+
         self._source.insert(row)
 
+        if self._auxiliary_indices:
+            row = dict(zip(self.schema().column_names(), row))
+            for index in self._auxiliary_indices.values():
+                index_row = [row[c] for c in index.schema().column_names()]
+                index.insert(index_row)
+
     def slice(self, bounds):
+        columns = self.schema().column_names()
+        if set(bounds.keys()) > set(columns):
+            raise IndexError
+
         if self._source.supports(bounds):
             return SliceSelection(self._source, bounds)
 
-        for index in self._auxiliary_indices.values():
-            if index.supports(bounds):
-                return MergeSelection(self._source, SliceSelection(index, bounds))
+        selection = self._source
+        bounds = [(c, bounds[c]) for c in columns if c in bounds]
+        key_columns = self.schema().key_names()
+        while bounds:
+            supported = False
 
-        raise IndexError
+            for i in reversed(range(1, len(bounds) + 1)):
+                subset = dict(bounds[:i])
+
+                if self._source.supports(subset):
+                    selection = SliceSelection(self._source, subset)
+                    subset = {}
+                    bounds = bounds[i:]
+                    supported = True
+                    break
+
+                for index in self._auxiliary_indices.values():
+                    if index.supports(subset):
+                        supported = True
+                        index_slice = SliceSelection(index, subset)
+                        selection = MergeSelection(selection, index_slice)
+                        bounds = bounds[i:]
+                        break
+
+                if supported:
+                    break
+
+            if not supported:
+                raise IndexError
+
+        return selection
 
     def supports(self, bounds):
         if self._source.supports(bounds):

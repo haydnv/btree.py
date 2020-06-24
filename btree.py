@@ -79,6 +79,12 @@ class _BTreeNode(object):
     def __getitem__(self, index):
         yield from self.select(index)
 
+    def select(self, bounds, reverse=False):
+        rows = (
+            node.keys[i] for (node, i) in self._slice(bounds, reverse)
+            if not node.keys[i].deleted)
+        yield from (row.key for row in rows)
+
     def valid(self, order):
         if self.has_deleted_key:
             return False
@@ -96,12 +102,6 @@ class _BTreeNode(object):
                 return False
 
         return True
-
-    def select(self, bounds, reverse=False):
-        rows = (
-            node.keys[i] for (node, i) in self._slice(bounds, reverse)
-            if not node.keys[i].deleted)
-        yield from (row.key for row in rows)
 
     def _slice(self, bounds, reverse):
         if isinstance(bounds, slice):
@@ -178,6 +178,12 @@ class BTree(object):
                 unvisited.append(("{}-{}".format(path, i), node.children[i]))
 
         return as_str
+
+    def contains(self, item):
+        for _ in self[item]:
+            return True
+
+        return False
 
     def insert(self, key):
         assert len(key) == len(self._schema)

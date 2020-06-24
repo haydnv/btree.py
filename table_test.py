@@ -1,3 +1,5 @@
+import itertools
+
 from table import Index, Schema, Table
 
 
@@ -82,6 +84,18 @@ def test_ordering():
     assert actual == [(1, 2), (1, 1), (1, 0)]
 
 
+def test_slice_multiple_keys():
+    pk = (("a", int), ("b", int))
+    t = new_table(pk, [])
+    t.add_index("i2", ["b"])
+
+    for key in itertools.product(*[range(5) for _ in range(2)]):
+        t.insert(key)
+
+    actual = list(t.slice({"a": slice(0, 2), "b": 1}))
+    assert actual == [(0, 1), (1, 1)]
+
+
 def test_chaining():
     pk = (("one", str), ("two", int))
     cols = (("three", int),)
@@ -110,6 +124,7 @@ if __name__ == "__main__":
     test_filter()
     test_add_index()
     test_ordering()
+    test_slice_multiple_keys()
     test_chaining()
     print("PASS")
 
