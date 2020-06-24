@@ -39,6 +39,9 @@ class Selection(object):
     def __iter__(self):
         yield from self._source
 
+    def derive(self, name, func, return_type):
+        return DeriveSelection(self, name, func, return_type)
+
     def filter(self, bool_filter):
         return FilterSelection(self, bool_filter)
 
@@ -77,7 +80,7 @@ class Selection(object):
         if set(columns) > set(self.schema().column_names()):
             raise IndexError
 
-        return OrderedSelection(self, columns, reverse)
+        return OrderSelection(self, columns, reverse)
 
 
 class ColumnSelection(Selection):
@@ -115,6 +118,33 @@ class ColumnSelection(Selection):
         return tuple(columns[c] for c in self._columns)
 
 
+class DeriveSelection(Selection):
+    def __init__(self, source, name, func, return_type):
+        super().__init__(source)
+        self._derive = (name, return_type)
+        self._func = func
+
+    def __getitem__(self, key):
+        columns = self._source.schema().column_names()
+        for row in self._source[key]:
+            row_dict = dict((columns[i], row[i]) for i in range(len(columns)))
+            yield row + (self._func(row_dict),)
+
+    def __iter__(self):
+        columns = self._source.schema().column_names()
+        for row in self._source:
+            row_dict = dict((columns[i], row[i]) for i in range(len(columns)))
+            yield row + (self._func(row_dict),)
+ 
+    def schema(self):
+        source = self._source.schema()
+        return Schema(source.key, source.value + (self._derive,))
+
+    def slice(self, bounds):
+        return DeriveSelection(
+            self._source.slice(bounds), self._derive[0], self._func, self._derive[1])
+
+
 class FilterSelection(Selection):
     def __init__(self, source, bool_filter):
         super().__init__(source)
@@ -126,10 +156,7 @@ class FilterSelection(Selection):
                 yield row
 
     def slice(self, bounds):
-        if self._source.supports(bounds):
-            return FilterSelection(self._source.slice(bounds), self._filter)
-
-        raise IndexError
+        return FilterSelection(self._source.slice(bounds), self._filter)
 
 
 class LimitSelection(Selection):
@@ -166,7 +193,7 @@ class MergeSelection(Selection):
             yield from self._source[key]
 
 
-class OrderedSelection(Selection):
+class OrderSelection(Selection):
     def __init__(self, source, columns, reverse):
         index = source.index(columns)
         super().__init__(index)

@@ -134,6 +134,20 @@ def test_chaining():
     assert actual == [("Four",)]
 
 
+def test_derive():
+    pk = (("one", int),)
+    t = new_table(pk, [])
+    for i in range(5):
+        t.insert((i,))
+
+    actual = list(t
+        .derive("square", lambda r: r["one"]**2, int)
+        .select(["square"])
+        .order_by(["square"], reverse=True)
+    )
+    assert actual[0] == (16,)
+
+
 if __name__ == "__main__":
     test_select_all()
     test_pk_range()
@@ -144,5 +158,6 @@ if __name__ == "__main__":
     test_ordering()
     test_slice_multiple_keys()
     test_chaining()
+    test_derive()
     print("PASS")
 
