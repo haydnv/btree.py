@@ -148,6 +148,64 @@ def test_derive():
     assert actual[0] == (16,)
 
 
+def test_update():
+    pk = (("one", int), ("two", str))
+    cols = (("three", str), ("four", int))
+    t = new_table(pk, cols)
+    t.add_index("aux", ["four"])
+
+    t.upsert((1, "upsert"), ("col3", 4))
+    assert list(t) == [(1, "upsert", "col3", 4)]
+
+    t.insert((2, "insert", "col3-2", 5))
+    t.update({"three": "new"})
+    for val in t.select(["three"]):
+        assert val == ("new",)
+
+    actual = list(t.slice({"four": 4}).update({"three": "old"}).select(["three"]))
+    assert actual == [("old",)]
+    assert len(t) == 2
+
+    actual = list(t.slice({"four": 4}).update({"four": 3}).select(["four"]))
+    assert actual == []
+    assert len(t) == 2
+
+    actual1 = list(t.slice({"four": slice(None)}).select(["four"]))
+    actual2 = list(t.select(["four"]))
+    expected = [(3,), (5,)]
+    assert actual1 == expected
+    assert actual2 == expected
+
+
+def test_delete():
+    pk = (("a", int),)
+    cols = (("b", int), ("c", int))
+    t = new_table(pk, cols)
+    t.add_index("b", ["b"])
+
+    for i in range(10):
+        t.insert((i, i, i))
+
+    assert len(t) == 10
+
+    t.slice({"a": slice(2)}).delete()
+    assert len(t) == 8
+    assert list(t.select(["a"])) == [(i,) for i in range(2, 10)]
+
+    t.slice({"b": slice(5, 9)}).delete()
+    actual = list(t.select(["a"]))
+    assert actual == [(2,), (3,), (4,), (9,)]
+
+    t.filter(lambda r: r["a"] % 2 == 0).slice({"a": slice(3)}).delete()
+    actual = list(t)
+    assert actual == [(3, 3, 3), (4, 4, 4), (9, 9, 9)]
+
+    t.delete()
+    assert len(t) == 0
+    assert len(list(t)) == 0
+    assert len(list(t.slice({"b": slice(0, 10)}))) == 0
+
+
 if __name__ == "__main__":
     test_select_all()
     test_pk_range()
@@ -159,5 +217,7 @@ if __name__ == "__main__":
     test_slice_multiple_keys()
     test_chaining()
     test_derive()
+    test_update()
+    test_delete()
     print("PASS")
 

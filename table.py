@@ -19,6 +19,9 @@ class Schema(object):
     def __len__(self):
         return len(self.key) + len(self.value)
 
+    def __str__(self):
+        return "{}".format(["{}".format(c) for c in self.columns()])
+
     def columns(self):
         return self.key + self.value
 
@@ -28,8 +31,8 @@ class Schema(object):
     def key_names(self):
         return list(c.name for c in self.key)
 
-    def __str__(self):
-        return "{}".format(["{}".format(c) for c in self.columns()])
+    def value_names(self):
+        return list(c.name for c in self.value)
 
 
 class Selection(object):
@@ -38,6 +41,18 @@ class Selection(object):
 
     def __iter__(self):
         yield from self._source
+
+    def delete(self):
+        key_len = len(self.schema().key)
+        for row in self:
+            key = row[:key_len]
+            self._delete_row(key)
+
+    def _delete_row(self, key):
+        if isinstance(self._source, Selection):
+            return self._source._delete_row(key)
+        else:
+            raise NotImplementedError
 
     def derive(self, name, func, return_type):
         return DeriveSelection(self, name, func, return_type)
@@ -54,6 +69,12 @@ class Selection(object):
 
     def limit(self, limit):
         return LimitSelection(self, limit)
+
+    def order_by(self, columns, reverse=False):
+        if set(columns) > set(self.schema().column_names()):
+            raise IndexError
+
+        return OrderSelection(self, columns, reverse)
 
     def schema(self):
         if isinstance(self._source, Selection):
@@ -76,11 +97,19 @@ class Selection(object):
         else:
             return False
 
-    def order_by(self, columns, reverse=False):
-        if set(columns) > set(self.schema().column_names()):
-            raise IndexError
+    def update(self, value):
+        key_len = len(self.schema().key)
+        for row in self:
+            key = row[:key_len]
+            self._update_row(key, value)
 
-        return OrderSelection(self, columns, reverse)
+        return self
+
+    def _update_row(self, key, value):
+        if isinstance(self._source, Selection):
+            self._source._update_row(key, value)
+        else:
+            raise NotImplementedError
 
 
 class ColumnSelection(Selection):
@@ -117,6 +146,16 @@ class ColumnSelection(Selection):
         columns = dict(zip(columns, range(len(columns))))
         return tuple(columns[c] for c in self._columns)
 
+    def update(self, value):
+        if len(value) != len(self._columns):
+            raise ValueError
+
+        if set(value.keys()) > set(self._columns):
+            raise ValueError
+
+        self._source.update(value)
+        return self
+
 
 class DeriveSelection(Selection):
     def __init__(self, source, name, func, return_type):
@@ -141,8 +180,14 @@ class DeriveSelection(Selection):
         return Schema(source.key, source.value + (self._derive,))
 
     def slice(self, bounds):
-        return DeriveSelection(
-            self._source.slice(bounds), self._derive[0], self._func, self._derive[1])
+        return NotImplementedError
+
+    def update(self, value):
+        if self._derive[0] in value:
+            raise ValueError
+
+        self._source.update(value)
+        return self
 
 
 class FilterSelection(Selection):
@@ -207,7 +252,7 @@ class OrderSelection(Selection):
 
 
 class SchemaSelection(Selection):
-    def __init__(self, schema, source):
+    def __init__(self, source, schema):
         super().__init__(source)
         self._schema = schema
 
@@ -215,9 +260,10 @@ class SchemaSelection(Selection):
         return self._schema
 
 
-class SliceSelection(Selection):
-    def __init__(self, source, bounds):
-        super().__init__(source)
+class TableIndexSliceSelection(Selection):
+    def __init__(self, table, index, bounds):
+        super().__init__(index)
+        self._table = table
         self._bounds = bounds
 
     def __getitem__(self, key):
@@ -251,6 +297,18 @@ class SliceSelection(Selection):
     def supports(self, bounds):
         return self._source.supports(bounds)
 
+    def update(self, value):
+        key_len = len(self.schema().key)
+        for row in self:
+            key = row[:key_len]
+            self._update_row(key, value)
+
+    def _delete_row(self, key):
+        self._table._delete_row(key)
+
+    def _update_row(self, key, value):
+        self._table._update_row(key, value)
+
 
 class Index(Selection):
     def __init__(self, schema, keys=[]):
@@ -263,8 +321,17 @@ class Index(Selection):
 
         yield from self._source[bounds]
 
+    def __delitem__(self, key):
+        del self._source[key]
+
+    def __len__(self):
+        return len(self._source)
+
     def contains(self, key):
         return self._source.contains(list(key))
+
+    def delete(self):
+        del self._source[:]
 
     def insert(self, row):
         self._source.insert(row)
@@ -277,7 +344,7 @@ class Index(Selection):
             raise NotImplementedError
 
         bounds = list(bounds.values())
-        if isinstance(bounds[-1], slice):
+        if bounds and isinstance(bounds[-1], slice):
             start = []
             stop = []
             for v in bounds[:-1]:
@@ -288,9 +355,9 @@ class Index(Selection):
             if bounds[-1].stop:
                 stop.append(bounds[-1].stop)
 
-            return SchemaSelection(self._schema, self[slice(start, stop)])
+            return SchemaSelection(self[slice(start, stop)], self._schema)
         else:
-            return SchemaSelection(self._schema, self[bounds])
+            return SchemaSelection(self[bounds], self._schema)
 
     def supports(self, bounds):
         if set(bounds.keys()) > set(self.schema().column_names()):
@@ -322,6 +389,9 @@ class Table(Selection):
     def __getitem__(self, bounds):
         yield from self._source[bounds]
 
+    def __len__(self):
+        return len(self._source)
+
     def add_index(self, name, key_columns):
         if name in self._auxiliary_indices:
             raise ValueError
@@ -335,18 +405,22 @@ class Table(Selection):
         index = Index(Schema(key, value), self.select(columns))
         self._auxiliary_indices[name] = index
 
+    def delete(self):
+        deleted = self._source.delete()
+        for index in self._auxiliary_indices.values():
+            index.delete()
+
     def insert(self, row):
-        assert len(row) == len(self.schema())
-        if self._source.contains(row[:len(self.schema().key)]):
+        if len(row) != len(self.schema()):
             raise ValueError
 
-        self._source.insert(row)
+        key = row[:len(self.schema().key)]
+        value = row[len(self.schema().key):]
 
-        if self._auxiliary_indices:
-            row = dict(zip(self.schema().column_names(), row))
-            for index in self._auxiliary_indices.values():
-                index_row = [row[c] for c in index.schema().column_names()]
-                index.insert(index_row)
+        if self._source.contains(key):
+            raise ValueError
+
+        self.upsert(key, value)
 
     def slice(self, bounds):
         columns = self.schema().column_names()
@@ -354,13 +428,13 @@ class Table(Selection):
             raise IndexError
 
         bounds = [(c, bounds[c]) for c in columns if c in bounds]
-        while bounds[-1][1] == slice(None):
+        while bounds and bounds[-1][1] == slice(None):
             bounds = bounds[:-1]
 
         if self._source.supports(dict(bounds)):
-            return SliceSelection(self._source, dict(bounds))
+            return TableIndexSliceSelection(self, self._source, dict(bounds))
 
-        selection = self._source
+        selection = TableIndexSliceSelection(self, self._source, {})
         key_columns = self.schema().key_names()
         while bounds:
             supported = False
@@ -369,7 +443,7 @@ class Table(Selection):
                 subset = dict(bounds[:i])
 
                 if self._source.supports(subset):
-                    selection = SliceSelection(self._source, subset)
+                    selection = TableIndexSliceSelection(self, self._source, subset)
                     subset = {}
                     bounds = bounds[i:]
                     supported = True
@@ -378,7 +452,7 @@ class Table(Selection):
                 for index in self._auxiliary_indices.values():
                     if index.supports(subset):
                         supported = True
-                        index_slice = SliceSelection(index, subset)
+                        index_slice = TableIndexSliceSelection(self, index, subset)
                         selection = MergeSelection(selection, index_slice)
                         bounds = bounds[i:]
                         break
@@ -400,4 +474,85 @@ class Table(Selection):
                 return True
 
         return False
+
+    def update(self, value):
+        if set(value.keys()) > set(self.schema().key_names()):
+            raise ValueError
+
+        key_len = len(self.schema().key)
+        value_names = self.schema().value_names()
+        value_labels = dict(zip(value_names, range(len(value_names))))
+
+        for row in self.index():
+            row_key = row[:key_len]
+            row_value = row[key_len:]
+            new_value = tuple(
+                value[c] if c in value else row_value[value_labels[c]]
+                for c in value_names)
+            if row_value != new_value:
+                self.upsert(row_key, new_value)
+
+        return self
+
+    def upsert(self, key, value):
+        if len(key) != len(self.schema().key):
+            raise IndexError
+
+        if len(value) != len(self.schema().value):
+            raise ValueError(value)
+
+        row = key + value
+        if not len(row) == len(self.schema()):
+            print(row, self.schema())
+            raise ValueError
+
+        self._delete_row(key)
+        self._source.insert(row)
+
+        if self._auxiliary_indices:
+            row = dict(zip(self.schema().column_names(), row))
+            for index in self._auxiliary_indices.values():
+                index_row = [row[c] for c in index.schema().column_names()]
+                index.insert(index_row)
+
+    def _delete_row(self, key):
+        key_names = self.schema().key_names()
+        if not len(key) == len(key_names):
+            raise KeyError
+
+        key_dict = dict(zip(key_names, key))
+        row = list(self.slice(key_dict))
+        if not row:
+            return
+        elif len(row) > 1:
+            raise IndexError("{} has {} keys".format(key, len(row)))
+        else:
+            row = row[0]
+
+        del self._source[key]
+        if self._auxiliary_indices:
+            row = dict(zip(self.schema().column_names(), row))
+            for index in self._auxiliary_indices.values():
+                index_key = [row[c] for c in index.schema().key_names()]
+                del index[index_key]
+
+    def _update_row(self, key, value):
+        value_names = self.schema().value_names()
+        if set(value.keys()) > set(value_names):
+            raise ValueError
+
+        row = list(self._source[key])
+        if not row:
+            raise ValueError
+        elif len(row) > 1:
+            raise RuntimeError("key {} has {} rows".format(key, len(row)))
+        else:
+            row = row[0]
+
+        value_index = dict(zip(value_names, range(len(value_names))))
+        old_value = row[-len(value_names):]
+        new_value = tuple(
+            value[c] if c in value else old_value[value_index[c]]
+            for c in value_names)
+        self.upsert(key, new_value)
 
