@@ -297,12 +297,6 @@ class TableIndexSliceSelection(Selection):
     def supports(self, bounds):
         return self._source.supports(bounds)
 
-    def update(self, value):
-        key_len = len(self.schema().key)
-        for row in self:
-            key = row[:key_len]
-            self._update_row(key, value)
-
     def _delete_row(self, key):
         self._table._delete_row(key)
 
