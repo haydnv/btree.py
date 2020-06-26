@@ -312,6 +312,8 @@ class TableIndexSliceSelection(Selection):
 
 class Index(Selection):
     def __init__(self, schema, keys=[]):
+        assert isinstance(schema, Schema)
+
         self._schema = schema
         super().__init__(BTree(10, tuple(c.ctr for c in schema.columns()), keys))
 
@@ -335,6 +337,9 @@ class Index(Selection):
 
     def insert(self, row):
         self._source.insert(row)
+
+    def rebalance(self):
+        self._source.rebalance()
 
     def schema(self):
         return self._schema
@@ -383,6 +388,8 @@ class Index(Selection):
 
 class Table(Selection):
     def __init__(self, index):
+        assert isinstance(index, Index)
+
         super().__init__(index)
         self._auxiliary_indices = {}
 
@@ -421,6 +428,12 @@ class Table(Selection):
             raise ValueError
 
         self.upsert(key, value)
+
+    def rebalance(self):
+        self._source.rebalance()
+
+    def schema(self):
+        return self._source.schema()
 
     def slice(self, bounds):
         columns = self.schema().column_names()

@@ -176,6 +176,13 @@ def test_update():
     assert actual1 == expected
     assert actual2 == expected
 
+    t.rebalance()
+    actual1 = list(t.slice({"four": slice(None)}).select(["four"]))
+    actual2 = list(t.select(["four"]))
+    expected = [(3,), (5,)]
+    assert actual1 == expected
+    assert actual2 == expected
+
 
 def test_delete():
     pk = (("a", int),)
@@ -201,6 +208,11 @@ def test_delete():
     assert actual == [(3, 3, 3), (4, 4, 4), (9, 9, 9)]
 
     t.delete()
+    assert len(t) == 0
+    assert len(list(t)) == 0
+    assert len(list(t.slice({"b": slice(0, 10)}))) == 0
+
+    t.rebalance()
     assert len(t) == 0
     assert len(list(t)) == 0
     assert len(list(t.slice({"b": slice(0, 10)}))) == 0
