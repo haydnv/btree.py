@@ -67,11 +67,12 @@ class _BTreeKey(object):
 
 
 class _BTreeNode(object):
-    def __init__(self, leaf = False):
+    def __init__(self, parent, leaf = False):
+        self.parent = parent
         self.leaf = leaf
         self.keys = []
         self.children = []
-        self.has_deleted_key = False
+        self.rebalance = False
 
     def __iter__(self):
         yield from self.select(slice(None))
@@ -86,13 +87,16 @@ class _BTreeNode(object):
         yield from (row.key for row in rows)
 
     def valid(self, order):
-        if self.has_deleted_key:
+        if self.rebalance:
             return False
 
-        if self.leaf:
-            if not self.keys:
+        if not self.keys:
+            return False
+
+        if not self.leaf:
+            if any(c.rebalance for c in self.children):
                 return False
-        else:
+
             if len(self.children) > order:
                 return False
             elif len(self.children) <= math.ceil(order / 2):
@@ -139,10 +143,12 @@ class BTree(object):
         self._len = 0
         self._order = order
         self._schema = schema
-        self._root = _BTreeNode(leaf = True)
+        self._root = _BTreeNode(None, leaf = True)
 
         for key in keys:
             self.insert(key)
+
+        self._rebalance_queue = []
 
     def __getitem__(self, index):
         if isinstance(index, tuple):
@@ -154,7 +160,10 @@ class BTree(object):
         for (node, i) in self._root._slice(index, False):
             if not node.keys[i].deleted:
                 node.keys[i].deleted = True
-                node.has_deleted_key = True
+                node.rebalance = True
+                if not node in self._rebalance_queue:
+                    self._rebalance_queue.append(node)
+
                 self._len -= 1
 
     def __iter__(self):
@@ -193,7 +202,8 @@ class BTree(object):
         key = _BTreeKey(key)
         if len(self._root.keys) >= (2 * self._order) - 1:
             node = self._root
-            self._root = _BTreeNode()
+            self._root = _BTreeNode(None)
+            node.parent = self._root
             self._root.children.insert(0, node)
             self._split_child(self._root, 0)
 
@@ -206,7 +216,25 @@ class BTree(object):
         return self._root.select(bounds, reverse)
 
     def rebalance(self):
-        self._root = self._rebalance(self._root)
+        while self._rebalance_queue:
+            node = self._rebalance_queue.pop()
+            if node.parent is None:
+                self._root = self._rebalance(node)
+            elif node.valid(self._order):
+                for i in range(len(node.children)):
+                    if not node.children[i].valid(self._order):
+                        node.children[i] = self._rebalance(node.children[i])
+                        node.children[i].parent = node
+                        if not node.children[i].valid(self._order):
+                            node.rebalance = True
+
+                if node.rebalance:
+                    self._rebalance_queue.append(node.parent)
+
+            elif node.parent is None:
+                self._root = self._rebalance(node)
+            else:
+                self._rebalance_queue.append(node.parent)
 
     def _insert(self, node, key):
         i = bisect.bisect_left(node.keys, key)
@@ -229,22 +257,12 @@ class BTree(object):
             self._insert(node.children[i], key)
 
     def _rebalance(self, node):
-        valid_children = True
-        for i in range(len(node.children)):
-            node.children[i] = self._rebalance(node.children[i])
-            if not node.children[i].valid(self._order):
-                valid_children = False
-
-        if valid_children and node.valid(self._order):
-            return node
-        else:
-            new_node = BTree(self._order, self._schema, node[:])
-            return new_node._root
+        return BTree(self._order, self._schema, node[:])._root
 
     def _split_child(self, node, i):
         order = self._order
         child = node.children[i]
-        new_node = _BTreeNode(child.leaf)
+        new_node = _BTreeNode(node, child.leaf)
 
         node.children.insert(i + 1, new_node)
         node.keys.insert(i, child.keys[order - 1])
@@ -254,5 +272,10 @@ class BTree(object):
 
         if not child.leaf:
             new_node.children = child.children[order:]
+            for node in new_node.children:
+                node.parent = new_node
+
             child.children = child.children[:order]
+            for node in child.children:
+                node.parent = child
 
