@@ -374,6 +374,10 @@ class Index(Selection):
             if isinstance(c, slice):
                 return False
 
+        for c in bounds.values():
+            if isinstance(c, slice) and c.step:
+                return False
+
         return True
 
     def reversed(self, bounds):
