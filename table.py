@@ -1,4 +1,4 @@
-from .btree import BTree
+from btree import BTree
 from collections import deque, OrderedDict
 
 
@@ -204,6 +204,8 @@ class FilterSelection(Selection):
             else:
                 yield from allowed
                 allowed = []
+
+        yield from allowed
 
     def slice(self, bounds):
         return FilterSelection(self._source.slice(bounds), self._filter)
