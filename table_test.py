@@ -100,17 +100,18 @@ def test_ordering():
 
 
 def test_slice_multiple_keys():
-    pk = (("a", int), ("b", int))
-    values = (("c", int),)
-    t = new_table(pk, values)
+    pk = (("a", int), ("b", int), ("c", int), ("d", int))
+    t = new_table(pk, [])
+    t.add_index("i1", ["a"])
     t.add_index("i2", ["b"])
     t.add_index("i3", ["c"])
+    t.add_index("i4", ["d"])
 
-    for i, j in itertools.product(*[range(5) for _ in range(2)]):
-        t.insert((i, j, i + j))
+    for i, j, k, l in itertools.product(*[range(5) for _ in range(4)]):
+        t.insert((i, j, k, l))
 
-    actual = list(t.slice({"a": slice(2), "b": 1, "c": slice(1, None)}))
-    assert actual == [(0, 1, 1), (1, 1, 2)]
+    actual = list(t.slice({"a": slice(2), "b": 1, "d": slice(1, 4)}))
+    assert len(set(actual)) == 2 * 1 * 5 * 3
 
 
 def test_chaining():

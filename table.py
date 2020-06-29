@@ -1,4 +1,4 @@
-from btree import BTree
+from .btree import BTree
 from collections import deque, OrderedDict
 
 
@@ -196,9 +196,14 @@ class FilterSelection(Selection):
         self._filter = bool_filter
 
     def __iter__(self):
+        allowed = []
         for row in self._source:
-            if self._filter(dict(zip(self.schema().column_names(), row))):
-                yield row
+            allow = self._filter(dict(zip(self.schema().column_names(), row)))
+            if allow:
+                allowed.append(row)
+            else:
+                yield from allowed
+                allowed = []
 
     def slice(self, bounds):
         return FilterSelection(self._source.slice(bounds), self._filter)
@@ -375,8 +380,10 @@ class Index(Selection):
                 return False
 
         for c in bounds.values():
-            if isinstance(c, slice) and c.step:
-                return False
+            if isinstance(c, slice):
+                if c.step is not None:
+                    if c.step != 1:
+                        return False
 
         return True
 
