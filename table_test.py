@@ -149,6 +149,24 @@ def test_derive():
     assert actual[0] == (16,)
 
 
+def test_group_by():
+    pk = (("one", int), ("two", int))
+    cols = (("three", int),)
+    t = new_table(pk, cols)
+
+    for i in range(10):
+        t.insert((i, i * 10, i % 3))
+
+    actual = list(t.group_by(["three"]))
+    assert actual == [(0,), (1,), (2,)]
+
+    actual = list(t.group_by(["one", "two"]))
+    assert len(actual) == 10
+
+    actual = list(t.group_by(["two", "three"]))
+    assert len(actual) == 10
+
+
 def test_update():
     pk = (("one", int), ("two", str))
     cols = (("three", str), ("four", int))
@@ -230,6 +248,7 @@ if __name__ == "__main__":
     test_slice_multiple_keys()
     test_chaining()
     test_derive()
+    test_group_by()
     test_update()
     test_delete()
     print("PASS")

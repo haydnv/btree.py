@@ -75,7 +75,7 @@ class Selection(object):
             return Index(self.schema(), self)
 
         key = [c for c in self.schema().columns() if c.name in columns]
-        value = [c for c in self.schema().columns() if c.name not in columns]
+        value = [c for c in self.schema().key if c.name not in columns]
         index_schema = Schema(key, value)
         return ReadOnlyIndex(self, index_schema)
 
@@ -129,26 +129,38 @@ class Aggregate(object):
         if set(columns) > set(source.schema().column_names()):
             raise IndexError
 
-        self._source = source
         self._columns = columns
+        self._index = source.index(columns)
+
+    def __iter__(self):
+        if not self._index:
+            return []
+
+        aggregate = iter(self._index.select(self._columns))
+        group = next(aggregate)
+        yield group
+
+        for row in aggregate:
+            if row != group:
+                group = row
+                yield group
 
     def count(self):
-        raise NotImplementedError
+        if not self._index:
+            return []
 
-    def max(self):
-        raise NotImplementedError
+        aggregate = iter(self._index.select(self._columns))
+        group = next(aggregate)
+        count = 1
+        for row in aggregate:
+            if row == group:
+                count += 1
+            else:
+                yield group + (count,)
+                count = 0
 
-    def mean(self):
-        raise NotImplementedError
-
-    def median(self):
-        raise NotImplementedError
-
-    def min(self):
-        raise NotImplementedError
-
-    def mode(self):
-        raise NotImplementedError
+        if count > 0:
+            yield group + (count,)
 
 
 class ColumnSelection(Selection):
@@ -359,6 +371,9 @@ class Index(Selection):
 
         self._schema = schema
         super().__init__(BTree(10, tuple(c.ctr for c in schema.columns()), keys))
+
+    def __bool__(self):
+        return len(self._source) > 0
 
     def __getitem__(self, bounds):
         if isinstance(bounds, tuple):
