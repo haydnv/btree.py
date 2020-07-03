@@ -42,6 +42,13 @@ class Selection(object):
     def __iter__(self):
         yield from self._source
 
+    def count(self):
+        count = 0
+        for row in self:
+            count += 1
+
+        return count
+
     def delete(self):
         key_len = len(self.schema().key)
         for row in self:
@@ -60,12 +67,17 @@ class Selection(object):
     def filter(self, bool_filter):
         return FilterSelection(self, bool_filter)
 
-    def index(self, new_key=None):
-        if new_key is None:
+    def group_by(self, columns):
+        return Aggregate(self, columns)
+
+    def index(self, columns=None):
+        if columns is None:
             return Index(self.schema(), self)
 
-        new_key = [c for c in self.schema().columns() if c.name in new_key]
-        return Index(self.schema(), self)
+        key = [c for c in self.schema().columns() if c.name in columns]
+        value = [c for c in self.schema().columns() if c.name not in columns]
+        index_schema = Schema(key, value)
+        return ReadOnlyIndex(self, index_schema)
 
     def limit(self, limit):
         return LimitSelection(self, limit)
@@ -110,6 +122,33 @@ class Selection(object):
             self._source._update_row(key, value)
         else:
             raise NotImplementedError
+
+
+class Aggregate(object):
+    def __init__(self, source, columns):
+        if set(columns) > set(source.schema().column_names()):
+            raise IndexError
+
+        self._source = source
+        self._columns = columns
+
+    def count(self):
+        raise NotImplementedError
+
+    def max(self):
+        raise NotImplementedError
+
+    def mean(self):
+        raise NotImplementedError
+
+    def median(self):
+        raise NotImplementedError
+
+    def min(self):
+        raise NotImplementedError
+
+    def mode(self):
+        raise NotImplementedError
 
 
 class ColumnSelection(Selection):
@@ -247,6 +286,9 @@ class MergeSelection(Selection):
 
 class OrderSelection(Selection):
     def __init__(self, source, columns, reverse):
+        if set(columns) > set(source.schema().column_names()):
+            raise IndexError
+
         index = source.index(columns)
         super().__init__(index)
         self._reverse = reverse
@@ -391,6 +433,17 @@ class Index(Selection):
 
     def reversed(self, bounds):
         yield from self._source.select(bounds, True)
+
+
+class ReadOnlyIndex(Index):
+    def __init__(self, source, schema):
+        Index.__init__(self, schema, source.select(schema.column_names()))
+
+    def __delitem__(self, key):
+        raise NotImplementedError
+
+    def insert(self, _row):
+        raise NotImplementedError
 
 
 class Table(Selection):
