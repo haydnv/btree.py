@@ -61,9 +61,6 @@ class Selection(object):
         else:
             raise NotImplementedError
 
-    def derive(self, name, func, return_type):
-        return DeriveSelection(self, name, func, return_type)
-
     def filter(self, bool_filter):
         return FilterSelection(self, bool_filter)
 
@@ -83,9 +80,6 @@ class Selection(object):
         return LimitSelection(self, limit)
 
     def order_by(self, columns, reverse=False):
-        if set(columns) > set(self.schema().column_names()):
-            raise IndexError
-
         return OrderSelection(self, columns, reverse)
 
     def schema(self):
@@ -103,9 +97,15 @@ class Selection(object):
         else:
             raise IndexError
 
-    def supports(self, bounds):
+    def supports_bounds(self, bounds):
         if isinstance(self._source, Selection):
-            return self._source.supports(bounds)
+            return self._source.supports_bounds(bounds)
+        else:
+            return False
+
+    def supports_order(self, columns):
+        if isinstance(self._source, Selection):
+            return self._source.supports_order(columns)
         else:
             return False
 
@@ -129,14 +129,13 @@ class Aggregate(object):
         if set(columns) > set(source.schema().column_names()):
             raise IndexError
 
-        self._columns = columns
-        self._index = source.index(columns)
+        self._source = source.order_by(columns).select(columns)
 
     def __iter__(self):
-        if not self._index:
+        if not self._source:
             return []
 
-        aggregate = iter(self._index.select(self._columns))
+        aggregate = iter(self._source)
         group = next(aggregate)
         yield group
 
@@ -144,23 +143,6 @@ class Aggregate(object):
             if row != group:
                 group = row
                 yield group
-
-    def count(self):
-        if not self._index:
-            return []
-
-        aggregate = iter(self._index.select(self._columns))
-        group = next(aggregate)
-        count = 1
-        for row in aggregate:
-            if row == group:
-                count += 1
-            else:
-                yield group + (count,)
-                count = 0
-
-        if count > 0:
-            yield group + (count,)
 
 
 class ColumnSelection(Selection):
@@ -202,39 +184,6 @@ class ColumnSelection(Selection):
             raise ValueError
 
         if set(value.keys()) > set(self._columns):
-            raise ValueError
-
-        self._source.update(value)
-        return self
-
-
-class DeriveSelection(Selection):
-    def __init__(self, source, name, func, return_type):
-        super().__init__(source)
-        self._derive = (name, return_type)
-        self._func = func
-
-    def __getitem__(self, key):
-        columns = self._source.schema().column_names()
-        for row in self._source[key]:
-            row_dict = dict((columns[i], row[i]) for i in range(len(columns)))
-            yield row + (self._func(row_dict),)
-
-    def __iter__(self):
-        columns = self._source.schema().column_names()
-        for row in self._source:
-            row_dict = dict((columns[i], row[i]) for i in range(len(columns)))
-            yield row + (self._func(row_dict),)
- 
-    def schema(self):
-        source = self._source.schema()
-        return Schema(source.key, source.value + (self._derive,))
-
-    def slice(self, bounds):
-        return NotImplementedError
-
-    def update(self, value):
-        if self._derive[0] in value:
             raise ValueError
 
         self._source.update(value)
@@ -301,13 +250,13 @@ class OrderSelection(Selection):
         if set(columns) > set(source.schema().column_names()):
             raise IndexError
 
-        index = source.index(columns)
-        super().__init__(index)
+        assert source.supports_order(columns)
+        super().__init__(source)
         self._reverse = reverse
 
     def __iter__(self):
         if self._reverse:
-            yield from self._source.reversed(slice(None))
+            yield from self._source.reversed()
         else:
             yield from self._source
 
@@ -322,7 +271,7 @@ class SchemaSelection(Selection):
 
 
 class TableIndexSliceSelection(Selection):
-    def __init__(self, table, index, bounds):
+    def __init__(self, table, index, bounds={}):
         super().__init__(index)
         self._table = table
         self._bounds = bounds
@@ -355,8 +304,8 @@ class TableIndexSliceSelection(Selection):
 
         return True
 
-    def supports(self, bounds):
-        return self._source.supports(bounds)
+    def reversed(self):
+        yield from self._source.reversed(self._bounds)
 
     def _delete_row(self, key):
         self._table._delete_row(key)
@@ -403,26 +352,13 @@ class Index(Selection):
         return self._schema
 
     def slice(self, bounds, reverse=False):
-        if not self.supports(bounds):
-            raise NotImplementedError
+        if not self.supports_bounds(bounds):
+            raise IndexError
 
-        bounds = list(bounds.values())
-        if bounds and isinstance(bounds[-1], slice):
-            start = []
-            stop = []
-            for v in bounds[:-1]:
-                start.append(v)
-                stop.append(v)
-            if bounds[-1].start:
-                start.append(bounds[-1].start)
-            if bounds[-1].stop:
-                stop.append(bounds[-1].stop)
+        bounds = convert_bounds(bounds)
+        return SchemaSelection(self[bounds], self._schema)
 
-            return SchemaSelection(self[slice(start, stop)], self._schema)
-        else:
-            return SchemaSelection(self[bounds], self._schema)
-
-    def supports(self, bounds):
+    def supports_bounds(self, bounds):
         if set(bounds.keys()) > set(self.schema().column_names()):
             return False
 
@@ -446,8 +382,34 @@ class Index(Selection):
 
         return True
 
-    def reversed(self, bounds):
+    def supports_order(self, columns):
+        return self.schema().column_names()[:len(columns)] == columns
+
+    def reversed(self, bounds=None):
+        if bounds is None:
+            bounds = slice(None)
+        else:
+            bounds = convert_bounds(bounds)
+
         yield from self._source.select(bounds, True)
+
+
+def convert_bounds(bounds):
+    bounds = list(bounds.values())
+    if bounds and isinstance(bounds[-1], slice):
+        start = []
+        stop = []
+        for v in bounds[:-1]:
+            start.append(v)
+            stop.append(v)
+        if bounds[-1].start:
+            start.append(bounds[-1].start)
+        if bounds[-1].stop:
+            stop.append(bounds[-1].stop)
+
+        return slice(start, stop)
+    else:
+        return bounds
 
 
 class ReadOnlyIndex(Index):
@@ -481,10 +443,11 @@ class Table(Selection):
         if set(key_columns) > set(self.schema().column_names()):
             raise ValueError
 
-        key = tuple(c for c in self.schema().columns() if c.name in key_columns)
-        value = self.schema().key
-        columns = [c.name for c in key + value]
-        index = Index(Schema(key, value), self.select(columns))
+        columns = {c.name: c for c in self.schema().columns()}
+        key = tuple(columns[name] for name in key_columns)
+        value = tuple(c for c in self.schema().key if c not in key)
+        schema = Schema(key, value)
+        index = Index(schema, self.select([c.name for c in key + value]))
         self._auxiliary_indices[name] = index
 
     def delete(self):
@@ -504,6 +467,21 @@ class Table(Selection):
 
         self.upsert(key, value)
 
+    def order_by(self, columns, reverse=False):
+        if not self.supports_order(columns):
+            raise IndexError
+
+        if self._source.supports_order(columns):
+            selection = TableIndexSliceSelection(self, self._source)
+            return selection.order_by(columns, reverse)
+
+        for index in self._auxiliary_indices.values():
+            if index.supports_order(columns):
+                index_slice = TableIndexSliceSelection(self, index)
+                return MergeSelection(self, index_slice)
+
+        raise IndexError
+
     def rebalance(self):
         self._source.rebalance()
 
@@ -519,7 +497,7 @@ class Table(Selection):
         while bounds and bounds[-1][1] == slice(None):
             bounds = bounds[:-1]
 
-        if self._source.supports(dict(bounds)):
+        if self._source.supports_bounds(dict(bounds)):
             return TableIndexSliceSelection(self, self._source, dict(bounds))
 
         selection = TableIndexSliceSelection(self, self._source, {})
@@ -530,7 +508,7 @@ class Table(Selection):
             for i in reversed(range(1, len(bounds) + 1)):
                 subset = dict(bounds[:i])
 
-                if self._source.supports(subset):
+                if self._source.supports_bounds(subset):
                     selection = TableIndexSliceSelection(self, self._source, subset)
                     subset = {}
                     bounds = bounds[i:]
@@ -538,7 +516,7 @@ class Table(Selection):
                     break
 
                 for index in self._auxiliary_indices.values():
-                    if index.supports(subset):
+                    if index.supports_bounds(subset):
                         supported = True
                         index_slice = TableIndexSliceSelection(self, index, subset)
                         selection = MergeSelection(selection, index_slice)
@@ -553,12 +531,22 @@ class Table(Selection):
 
         return selection
 
-    def supports(self, bounds):
-        if self._source.supports(bounds):
+    def supports_bounds(self, bounds):
+        if self._source.supports_bounds(bounds):
             return True
 
         for index in self._auxiliary_indices.values():
-            if index.supports(bounds):
+            if index.supports_bounds(bounds):
+                return True
+
+        return False
+
+    def supports_order(self, columns):
+        if self._source.supports_order(columns):
+            return True
+
+        for index in self._auxiliary_indices.values():
+            if index.supports_order(columns):
                 return True
 
         return False

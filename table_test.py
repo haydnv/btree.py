@@ -89,14 +89,22 @@ def test_ordering():
     pk = (("one", int), ("two", int))
     t = new_table(pk, [])
     for i in range(10):
-        for j in range(10):
+        for j in range(20, 30):
             t.insert((i, j))
 
+    t.add_index("i", ["two", "one"])
+
     actual = list(t
-        .slice({"one": 1, "two": slice(5)})
-        .limit(3)
-        .order_by(["two", "one"], reverse=True))
-    assert actual == [(1, 2), (1, 1), (1, 0)]
+        .slice({"one": slice(0, 2)})
+        .order_by(["one", "two"], reverse=True)
+        .limit(3))
+    assert actual == [(1, 29), (1, 28), (1, 27)]
+
+    actual = list(t
+        .order_by(["two", "one"])
+        .select(["two", "one"])
+        .limit(3))
+    assert actual == [(20, 0), (20, 1), (20, 2)]
 
 
 def test_slice_multiple_keys():
@@ -135,33 +143,21 @@ def test_chaining():
     assert actual == [("Four",)]
 
 
-def test_derive():
-    pk = (("one", int),)
-    t = new_table(pk, [])
-    for i in range(5):
-        t.insert((i,))
-
-    actual = list(t
-        .derive("square", lambda r: r["one"]**2, int)
-        .select(["square"])
-        .order_by(["square"], reverse=True)
-    )
-    assert actual[0] == (16,)
-
-
 def test_group_by():
     pk = (("one", int), ("two", int))
     cols = (("three", int),)
     t = new_table(pk, cols)
+    t.add_index("i1", ["three"])
+    t.add_index("i2", ["two", "three"])
 
     for i in range(10):
         t.insert((i, i * 10, i % 3))
 
-    actual = list(t.group_by(["three"]))
-    assert actual == [(0,), (1,), (2,)]
-
     actual = list(t.group_by(["one", "two"]))
     assert len(actual) == 10
+
+    actual = list(t.group_by(["three"]))
+    assert actual == [(0,), (1,), (2,)]
 
     actual = list(t.group_by(["two", "three"]))
     assert len(actual) == 10
@@ -247,7 +243,6 @@ if __name__ == "__main__":
     test_ordering()
     test_slice_multiple_keys()
     test_chaining()
-    test_derive()
     test_group_by()
     test_update()
     test_delete()
