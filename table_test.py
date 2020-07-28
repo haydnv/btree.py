@@ -46,14 +46,14 @@ def test_limit():
 
 
 def test_filter():
-    pk = (("key", str),)
+    pk = (("key1", str), ("key2", int))
     cols = (("value", int),)
     t = new_table(pk, cols)
-    t.insert(("one", 1))
-    t.insert(("two", 2))
-    t.insert(("three", 3))
+    t.insert(("one", 1, 1))
+    t.insert(("two", 2, 2))
+    t.insert(("three", 2, 3))
 
-    actual = list(t.filter(lambda r: r["key"] == "two").select(["value"]))
+    actual = list(t.filter(lambda r: r["key1"] == "two").select(["value"]))
     assert actual == [(2,)]
 
 
@@ -105,6 +105,26 @@ def test_ordering():
         .select(["two", "one"])
         .limit(3))
     assert actual == [(20, 0), (20, 1), (20, 2)]
+
+
+def test_slice():
+    pk = (("key1", str), ("key2", int))
+    cols = (("value", int),)
+    t = new_table(pk, cols)
+    t.insert(("one", 1, 1))
+    t.insert(("two", 2, 2))
+    t.insert(("two", 4, 4))
+    t.insert(("three", 3, 3))
+
+    actual = list(t.slice({"key1": "two"}).select(["value"]))
+    assert actual == [(2,), (4,)]
+
+    actual = list(
+        t
+            .filter(lambda r: r["key2"] == 4)
+            .slice({"key1": "two"})
+            .select(["value"]))
+    assert actual == [(4,)]
 
 
 def test_slice_multiple_keys():
@@ -241,6 +261,7 @@ if __name__ == "__main__":
     test_column_select()
     test_add_index()
     test_ordering()
+    test_slice()
     test_slice_multiple_keys()
     test_chaining()
     test_group_by()

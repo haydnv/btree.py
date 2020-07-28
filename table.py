@@ -92,10 +92,7 @@ class Selection(object):
         return ColumnSelection(self, columns)
 
     def slice(self, bounds):
-        if self.supports(bounds):
-            return SliceSelection(self, bounds)
-        else:
-            raise IndexError
+        raise NotImplementedError
 
     def supports_bounds(self, bounds):
         if isinstance(self._source, Selection):
@@ -490,7 +487,7 @@ class Table(Selection):
 
     def slice(self, bounds):
         columns = self.schema().column_names()
-        if set(bounds.keys()) > set(columns):
+        if not set(columns) >= set(bounds.keys()):
             raise IndexError
 
         bounds = [(c, bounds[c]) for c in columns if c in bounds]
