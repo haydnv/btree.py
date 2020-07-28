@@ -389,7 +389,8 @@ class Index(Selection):
         return True
 
     def supports_order(self, columns):
-        return self.schema().column_names()[:len(columns)] == columns
+        schema_columns = self.schema().column_names()
+        return schema_columns[:len(columns)] == columns
 
     def reversed(self, bounds=None):
         if bounds is None:
@@ -477,16 +478,32 @@ class Table(Selection):
         if not self.supports_order(columns):
             raise IndexError
 
-        if self._source.supports_order(columns):
-            selection = TableIndexSliceSelection(self, self._source)
-            return selection.order_by(columns, reverse)
+        if not set(self.schema().column_names()) >= set(columns):
+            raise IndexError
 
-        for index in self._auxiliary_indices.values():
-            if index.supports_order(columns):
-                index_slice = TableIndexSliceSelection(self, index)
-                return MergeSelection(self, index_slice)
+        selection = TableIndexSliceSelection(self, self._source)
+        key_columns = self.schema().key_names()
+        while columns:
+            initial_columns = list(columns)
+            for i in reversed(range(1, len(columns) + 1)):
+                subset = list(columns[:i])
 
-        raise IndexError
+                if self._source.supports_order(subset):
+                    selection = TableIndexSliceSelection(self, self._source)
+                    columns = columns[i:]
+                    break
+
+                for index in self._auxiliary_indices.values():
+                    if index.supports_order(subset):
+                        index_slice = TableIndexSliceSelection(self, index)
+                        selection = MergeSelection(selection, index_slice)
+                        columns = columns[i:]
+                        break
+
+            if columns == initial_columns:
+                raise IndexError
+
+        return selection
 
     def rebalance(self):
         self._source.rebalance()
@@ -503,59 +520,73 @@ class Table(Selection):
         while bounds and bounds[-1][1] == slice(None):
             bounds = bounds[:-1]
 
-        if self._source.supports_bounds(dict(bounds)):
-            return TableIndexSliceSelection(self, self._source, dict(bounds))
-
         selection = TableIndexSliceSelection(self, self._source, {})
         key_columns = self.schema().key_names()
         while bounds:
-            supported = False
-
+            initial_bounds = list(bounds)
             for i in reversed(range(1, len(bounds) + 1)):
                 subset = dict(bounds[:i])
 
                 if self._source.supports_bounds(subset):
                     selection = TableIndexSliceSelection(self, self._source, subset)
-                    subset = {}
                     bounds = bounds[i:]
-                    supported = True
                     break
 
                 for index in self._auxiliary_indices.values():
                     if index.supports_bounds(subset):
-                        supported = True
                         index_slice = TableIndexSliceSelection(self, index, subset)
                         selection = MergeSelection(selection, index_slice)
                         bounds = bounds[i:]
                         break
 
-                if supported:
-                    break
-
-            if not supported:
+            if bounds == initial_bounds:
                 raise IndexError
 
         return selection
 
     def supports_bounds(self, bounds):
-        if self._source.supports_bounds(bounds):
-            return True
+        bounds = list(bounds)
+        while bounds:
+            initial_bounds = list(bounds)
+            supported = False
+            for i in reversed(range(1, len(bounds) + 1)):
+                subset = list(bounds[:i])
 
-        for index in self._auxiliary_indices.values():
-            if index.supports_bounds(bounds):
-                return True
+                if self._source.supports_bounds(dict(subset)):
+                    bounds = bounds[i:]
+                    supported = True
+                    break
 
-        return False
+                for index in self._auxiliary_indices.values():
+                    if index.supports_bounds(dict(subset)):
+                        bounds = bounds[i:]
+                        supported = True
+                        break
+
+            if bounds == initial_bounds:
+                return False
+
+        return True
 
     def supports_order(self, columns):
-        if self._source.supports_order(columns):
-            return True
+        while columns:
+            initial_columns = list(columns)
+            for i in reversed(range(1, len(columns) + 1)):
+                subset = list(columns[:i])
 
-        for index in self._auxiliary_indices.values():
-            if index.supports_order(columns):
-                return True
+                if self._source.supports_order(subset):
+                    columns = columns[i:]
+                    break
 
-        return False
+                for index in self._auxiliary_indices.values():
+                    if index.supports_order(subset):
+                        columns = columns[i:]
+                        break
+
+            if columns == initial_columns:
+                return False
+
+        return True
 
     def update(self, value):
         if set(value.keys()) > set(self.schema().key_names()):

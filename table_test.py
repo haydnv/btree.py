@@ -86,17 +86,20 @@ def test_add_index():
 
 
 def test_ordering():
-    pk = (("one", int), ("two", int))
-    t = new_table(pk, [])
+    pk = (("one", int), ("two", int), ("three", int))
+    t = new_table(pk, [("four", str)])
     for i in range(10):
         for j in range(20, 30):
-            t.insert((i, j))
+            t.insert((i, j, i * j, "test"))
 
-    t.add_index("i", ["two", "one"])
+    t.add_index("i1", ["one"])
+    t.add_index("i2", ["two"])
+    t.add_index("i3", ["three"])
 
     actual = list(t
         .slice({"one": slice(0, 2)})
         .order_by(["one", "two"], reverse=True)
+        .select(["one", "two"])
         .limit(3))
     assert actual == [(1, 29), (1, 28), (1, 27)]
 
@@ -104,7 +107,10 @@ def test_ordering():
         .order_by(["two", "one"])
         .select(["two", "one"])
         .limit(3))
-    assert actual == [(20, 0), (20, 1), (20, 2)]
+    assert actual == [(20, 0), (21, 0), (22, 0)]
+
+    actual = list(t.order_by(["three", "two"]).limit(3).select(["three", "two"]))
+    assert actual == [(0, 20), (20, 20), (40, 20)]
 
 
 def test_slice():
