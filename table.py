@@ -207,6 +207,9 @@ class FilterSelection(Selection):
     def slice(self, bounds):
         return FilterSelection(self._source.slice(bounds), self._filter)
 
+    def upsert(self, key, value):
+        return self._source.upsert(key, value)
+
 
 class LimitSelection(Selection):
     def __init__(self, source, limit):
@@ -303,6 +306,12 @@ class TableIndexSliceSelection(Selection):
 
     def reversed(self):
         yield from self._source.reversed(self._bounds)
+
+    def slice(self, bounds):
+        return self._source.slice(bounds)
+
+    def upsert(self, key, value):
+        return self._table.upsert(key, value)
 
     def _delete_row(self, key):
         self._table._delete_row(key)
