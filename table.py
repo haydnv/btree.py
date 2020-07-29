@@ -156,7 +156,9 @@ class ColumnSelection(Selection):
             raise IndexError
 
         key = {key_names[i]: key[i] for i in range(len(key))}
-        key = tuple(key.get(c, slice(None)) for c in self._source.schema().column_names())
+        key = tuple(
+            key.get(c, slice(None))
+            for c in self._source.schema().column_names())
 
         columns = self._column_indices()
         for row in self._source[key]:
@@ -309,6 +311,9 @@ class TableIndexSliceSelection(Selection):
 
     def slice(self, bounds):
         return self._source.slice(bounds)
+
+    def supports_order(self, order):
+        return self._table.supports_order(order)
 
     def upsert(self, key, value):
         return self._table.upsert(key, value)
