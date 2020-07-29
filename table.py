@@ -129,7 +129,7 @@ class Aggregate(object):
         self._source = source.order_by(columns).select(columns)
 
     def __iter__(self):
-        if not self._source:
+        if not self._source.count():
             return []
 
         aggregate = iter(self._source)
@@ -451,10 +451,10 @@ class Table(Selection):
             raise ValueError
 
         columns = {c.name: c for c in self.schema().columns()}
-        key = tuple(columns[name] for name in key_columns)
-        value = tuple(c for c in self.schema().key if c not in key)
-        schema = Schema(key, value)
-        index = Index(schema, self.select([c.name for c in key + value]))
+        key = [columns[name] for name in key_columns]
+        key += [c for c in self.schema().key if c not in key]
+        schema = Schema(tuple(key), tuple())
+        index = Index(schema, self.select([c.name for c in key]))
         self._auxiliary_indices[name] = index
 
     def delete(self):
