@@ -39,13 +39,16 @@ def test_tuple_range():
     pk = (("type", str), ("key", tuple))
     values = (("id", int),)
     t = new_table(pk, values)
+    t.add_index("id", ("id",))
 
     t.insert(("node", (1,), 1))
 
-    contents = list(t.slice({"type": "node", "key": (1,)}))
-    assert contents == [("node", (1,), 1)]
+    expected = [("node", (1,), 1)]
 
-    print(list(t.slice("id": 1)))
+    rows = list(t.slice({"type": "node", "key": (1,)}))
+    assert rows == expected
+
+    assert list(t.slice({"id": 1})) == expected
 
 
 def test_limit():
