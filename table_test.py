@@ -35,6 +35,19 @@ def test_pk_range():
     assert actual == [(1, 1), (1, 2)]
 
 
+def test_tuple_range():
+    pk = (("type", str), ("key", tuple))
+    values = (("id", int),)
+    t = new_table(pk, values)
+
+    t.insert(("node", (1,), 1))
+
+    contents = list(t.slice({"type": "node", "key": (1,)}))
+    assert contents == [("node", (1,), 1)]
+
+    print(list(t.slice("id": 1)))
+
+
 def test_limit():
     pk = (("key", int),)
     t = new_table(pk, tuple())
@@ -262,6 +275,7 @@ def test_delete():
 if __name__ == "__main__":
     test_select_all()
     test_pk_range()
+    test_tuple_range()
     test_limit()
     test_filter()
     test_column_select()

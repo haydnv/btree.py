@@ -151,9 +151,6 @@ class BTree(object):
         self._rebalance_queue = []
 
     def __getitem__(self, index):
-        if isinstance(index, tuple):
-            raise IndexError(index)
-
         yield from self._root[index]
 
     def __delitem__(self, index):

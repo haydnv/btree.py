@@ -336,9 +336,6 @@ class Index(Selection):
         return len(self._source) > 0
 
     def __getitem__(self, bounds):
-        if isinstance(bounds, tuple):
-            bounds = list(bounds)
-
         yield from self._source[bounds]
 
     def __delitem__(self, key):
