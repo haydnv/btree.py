@@ -7,6 +7,9 @@ class Column(object):
         self.name = name
         self.ctr = constructor
 
+    def __eq__(self, other):
+        return self.name == other.name and self.ctr == other.ctr
+
     def __str__(self):
         return "{}({})".format(self.name, self.ctr)
 
@@ -15,6 +18,13 @@ class Schema(object):
     def __init__(self, key, value):
         self.key = tuple(c if isinstance(c, Column) else Column(*c) for c in key)
         self.value = tuple(c if isinstance(c, Column) else Column(*c) for c in value)
+
+    def __eq__(self, other):
+        key = len(self.key) == len(other.key)
+        key = key and all(c1 == c2 for c1, c2 in zip(self.key, other.key))
+        value = len(self.value) == len(other.value)
+        value = value and all(c1 == c2 for c1, c2 in zip(self.value, other.value))
+        return key and value
 
     def __len__(self):
         return len(self.key) + len(self.value)
